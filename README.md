@@ -17,10 +17,10 @@ pip install -r requirements-dev.txt
 ## Executar
 
 ```bash
-uvicorn app.main:app --reload --port 8001
+python -m app.main
 ```
 
-Docs interativas: http://localhost:8001/docs
+Docs interativas: http://localhost:8081/docs
 
 ## Testes com cobertura
 

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     auth0_domain: str = ""
     auth0_audience: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
+    port: int = 8081
 
 
 settings = Settings()

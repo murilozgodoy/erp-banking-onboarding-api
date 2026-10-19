@@ -7,7 +7,7 @@ Plataforma em microsserviços para digitalizar operações bancárias.
 
 | Serviço | Stack | Porta | Função |
 |---------|-------|-------|--------|
-| Onboarding API (este repo) | Python 3.13 / FastAPI | 8001 | Cadastro de clientes, dados financeiros e anamnese |
+| Onboarding API (este repo) | Python 3.13 / FastAPI | 8081 | Cadastro de clientes, dados financeiros e anamnese |
 | Credit Score API | Python 3.13 / FastAPI | 8002 | Calcula score consultando o Onboarding |
 | Transactions API | Java 21 / Spring Boot 3.3 | 8080 | Contas, transações e crédito; consulta o Score |
 | Front (erp-banking-front) | React/Vite | 5173 | UI + login Auth0 |
