@@ -4,3 +4,4 @@ sqlalchemy==2.0.35
 pydantic[email]==2.9.2
 pydantic-settings==2.5.2
 psycopg[binary]==3.2.3
+PyJWT[crypto]==2.12.1
