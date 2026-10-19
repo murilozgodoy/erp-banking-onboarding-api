@@ -10,8 +10,7 @@ app/
 │   └── security.py      # require_auth: validação do JWT Auth0 (JWKS/RS256)
 ├── models/              # entidades SQLAlchemy (um arquivo por tabela)
 ├── schemas/             # DTOs Pydantic de entrada/saída
-├── repositories/        # acesso a dados (queries SQLAlchemy)
-├── services/            # regras de negócio e exceções de domínio
+├── services/            # regras de negócio e acesso a dados via Session do ORM; exceções de domínio
 └── routers/             # endpoints HTTP (traduzem exceções de domínio em HTTP)
 tests/                   # pytest (cobertura mínima 80%)
 docs/                    # contexto atualizado do projeto
@@ -19,7 +18,7 @@ docs/                    # contexto atualizado do projeto
 
 ## Fluxo de uma requisição
 
-`router` → `service` (regra de negócio) → `repository` (SQL) → `model`.
+`router` → `service` (regra de negócio + Session do SQLAlchemy) → `model`.
 Os `schemas` validam a entrada e serializam a saída no router.
 
 ## Convenções

@@ -31,11 +31,11 @@ Dev/testes: SQLite; produção: `DATABASE_URL` (Postgres, driver `psycopg[binary
 
 ## Decisões técnicas
 
-- Repository pattern (SQLAlchemy); camadas router → service → repository (ver [architecture.md](architecture.md)).
+- Sem camada repository: o service usa a Session do ORM diretamente; camadas router → service → model (ver [architecture.md](architecture.md)).
 - Testes: pytest + cobertura mínima 80% (atual ~97%), CI no GitHub Actions + build Docker.
 - Auth: ver [auth.md](auth.md).
 
 ## Histórico recente
 
 - 2026-10-19: refatoração para estrutura FastAPI em camadas (`config`, `core`, `models`, `schemas`,
-  `repositories`, `services`, `routers`); criação de `docs/`; revisão da configuração de login.
+  `services`, `routers`; sem `repositories`, o service usa a Session do ORM); criação de `docs/`; revisão da configuração de login.

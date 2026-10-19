@@ -86,10 +86,3 @@ def test_create_customer_with_full_payload(db_session):
     assert customer.address is not None
     assert customer.address.cidade == "São Paulo"
     assert customer.financial_profile.renda_mensal == 12000.0
-
-
-def test_repository_list_all(db_session):
-    service = CustomerService(db_session)
-    service.create(_payload())
-    result = service.repo.list_all()
-    assert len(result) == 1
