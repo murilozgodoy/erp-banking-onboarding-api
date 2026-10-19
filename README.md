@@ -30,6 +30,11 @@ pytest
 
 Cobertura mínima exigida: **80%** (falha o build se abaixo).
 
+## Estrutura e documentação
+
+Camadas em `app/`: `config`, `core`, `models`, `schemas`, `repositories`, `services`, `routers`.
+Contexto atualizado do projeto, arquitetura e autenticação em [docs/](docs/README.md).
+
 ## Configuração
 
 Variáveis (ver `.env.example`):

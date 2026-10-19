@@ -2,10 +2,11 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 
-from app.auth import require_auth
-from app.config import settings
+from app.core.security import require_auth
+from app.config.settings import settings
 
-from app.database import Base, engine
+from app import models  # noqa: F401
+from app.config.database import Base, engine
 from app.routers import customers, health
 
 

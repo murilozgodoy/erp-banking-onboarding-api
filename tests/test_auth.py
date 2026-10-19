@@ -7,8 +7,8 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
-from app import auth
-from app.database import get_db
+from app.core import security as auth
+from app.config.database import get_db
 from app.main import app
 
 

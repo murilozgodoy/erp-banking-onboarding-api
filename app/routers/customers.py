@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.config.database import get_db
 from app.schemas import AnamnesisIn, AnamnesisOut, CustomerCreate, CustomerOut
 from app.services import (
     CustomerAlreadyExistsError,
