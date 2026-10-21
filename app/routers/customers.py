@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
+from app.core.security import require_permission
 from app.schemas import AnamnesisIn, AnamnesisOut, CustomerCreate, CustomerOut
 from app.services import (
     CustomerAlreadyExistsError,
@@ -12,7 +13,12 @@ from app.services import (
 router = APIRouter(prefix="/customers", tags=["customers"])
 
 
-@router.post("", response_model=CustomerOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CustomerOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("write:customers"))],
+)
 def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
     service = CustomerService(db)
     try:
@@ -22,7 +28,25 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
     return customer
 
 
-@router.get("/{customer_id}", response_model=CustomerOut)
+@router.get(
+    "",
+    response_model=list[CustomerOut],
+    dependencies=[Depends(require_permission("read:customers"))],
+)
+def list_customers(
+    q: str | None = Query(default=None, max_length=120, description="Nome ou CPF"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return CustomerService(db).search(q, limit, offset)
+
+
+@router.get(
+    "/{customer_id}",
+    response_model=CustomerOut,
+    dependencies=[Depends(require_permission("read:customers"))],
+)
 def get_customer(customer_id: int, db: Session = Depends(get_db)):
     service = CustomerService(db)
     try:
@@ -31,7 +55,11 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
-@router.put("/{customer_id}/anamnesis", response_model=AnamnesisOut)
+@router.put(
+    "/{customer_id}/anamnesis",
+    response_model=AnamnesisOut,
+    dependencies=[Depends(require_permission("write:customers"))],
+)
 def upsert_anamnesis(customer_id: int, payload: AnamnesisIn, db: Session = Depends(get_db)):
     service = CustomerService(db)
     try:

@@ -6,7 +6,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.config.database import Base, get_db
 from app.main import app
-from app.core.security import require_auth
+from app.core.security import Principal, require_auth
+
+ALL_PERMISSIONS = frozenset({"read:customers", "write:customers"})
 
 
 @pytest.fixture()
@@ -43,7 +45,9 @@ def client(engine):
             session.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[require_auth] = lambda: "test-token"
+    app.dependency_overrides[require_auth] = lambda: Principal(
+        token="test-token", subject="auth0|test", permissions=ALL_PERMISSIONS
+    )
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

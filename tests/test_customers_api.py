@@ -61,3 +61,30 @@ def test_put_anamnesis_customer_not_found(client):
 def test_create_customer_invalid_payload(client):
     r = client.post("/customers", json={"nome": "X"})
     assert r.status_code == 422
+
+
+def test_list_customers_empty(client):
+    r = client.get("/customers")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_list_customers_newest_first_with_search(client, sample_customer_payload):
+    client.post("/customers", json=sample_customer_payload)
+    other = {**sample_customer_payload, "nome": "Maria Souza", "cpf": "98765432100"}
+    client.post("/customers", json=other)
+
+    all_customers = client.get("/customers").json()
+    assert [c["nome"] for c in all_customers] == ["Maria Souza", "João da Silva"]
+    assert all_customers[0]["financial_profile"]["renda_mensal"] == 8000.0
+
+    assert [c["nome"] for c in client.get("/customers", params={"q": "maria"}).json()] == ["Maria Souza"]
+    by_cpf = client.get("/customers", params={"q": "123.456"}).json()
+    assert [c["cpf"] for c in by_cpf] == ["12345678900"]
+    assert len(client.get("/customers", params={"limit": 1}).json()) == 1
+    assert client.get("/customers", params={"limit": 1, "offset": 1}).json()[0]["nome"] == "João da Silva"
+
+
+def test_list_customers_invalid_pagination(client):
+    assert client.get("/customers", params={"limit": 0}).status_code == 422
+    assert client.get("/customers", params={"offset": -1}).status_code == 422

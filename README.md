@@ -1,6 +1,7 @@
 # ERP Banking - Onboarding API
 
 Serviço responsável pelo cadastro de clientes e anamnese financeira.
+Contexto do projeto, arquitetura e autenticação em [docs/](docs/README.md).
 
 ## Requisitos
 
@@ -12,15 +13,16 @@ Serviço responsável pelo cadastro de clientes e anamnese financeira.
 python -m venv .venv
 .venv\Scripts\activate      # Windows PowerShell
 pip install -r requirements-dev.txt
+cp .env.example .env
 ```
 
 ## Executar
 
 ```bash
-python -m app.main
+python -m app.main          # http://localhost:8081 (porta configurável por PORT)
 ```
 
-Docs interativas: http://localhost:8081/docs
+Docs interativas: http://localhost:8081/docs (exigem Bearer token, ver abaixo).
 
 ## Testes com cobertura
 
@@ -30,48 +32,37 @@ pytest
 
 Cobertura mínima exigida: **80%** (falha o build se abaixo).
 
-## Estrutura e documentação
-
-Camadas em `app/`: `config`, `core`, `models`, `schemas`, `services`, `routers`.
-Contexto atualizado do projeto, arquitetura e autenticação em [docs/](docs/README.md).
-
 ## Configuração
 
-Variáveis (ver `.env.example`):
-- `DATABASE_URL` — padrão `sqlite:///./onboarding.db`. Pode ser trocado por Postgres (ex: `postgresql+psycopg2://user:pass@host:5432/db`).
+Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
+
+| Variável         | Padrão                      | Descrição                                                                   |
+| ---------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `DATABASE_URL`   | `sqlite:///./onboarding.db` | Em produção, PostgreSQL: `postgresql+psycopg://user:pass@host:5432/db`      |
+| `PORT`           | `8081`                      | Porta usada por `python -m app.main` (8081 é uma das portas abertas na EC2) |
+| `AUTH0_DOMAIN`   | —                           | Domínio do tenant, sem `https://` (ex.: `dev-slbrfj6dwk1pdeox.us.auth0.com`) |
+| `AUTH0_AUDIENCE` | —                           | Identifier da API no Auth0: `https://erp-banking-api`                       |
+| `CORS_ORIGINS`   | `["http://localhost:5173"]` | Origens do frontend, em JSON                                                |
 
 ## Endpoints
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/health` | Health check |
-| POST | `/customers` | Cria cliente (opcional endereço + perfil financeiro) |
-| GET | `/customers/{id}` | Consulta dados autorizados |
-| PUT | `/customers/{id}/anamnesis` | Cria/atualiza anamnese |
+| Método | Rota                           | Permissão         | Descrição                                            |
+| ------ | ------------------------------ | ----------------- | ---------------------------------------------------- |
+| GET    | `/health`                      | pública           | Health check                                         |
+| GET    | `/customers?q=&limit=&offset=` | `read:customers`  | Lista clientes, com busca por nome ou CPF            |
+| POST   | `/customers`                   | `write:customers` | Cria cliente (endereço e perfil financeiro opcionais) |
+| GET    | `/customers/{id}`              | `read:customers`  | Consulta cliente (usado pelo Credit Score)           |
+| PUT    | `/customers/{id}/anamnesis`    | `write:customers` | Cria/atualiza a anamnese                             |
 
-## Autenticação Auth0 (Etapa 3)
+## Autenticação e autorização (Auth0)
 
-Envie o **access token** em `Authorization: Bearer <token>`.
-A API valida assinatura RS256 via JWKS, issuer HTTPS com barra final,
-audience e expiração. `/health` permanece público; preflight CORS não exige token.
-Sem token ou com token inválido: **401**, com `WWW-Authenticate: Bearer`.
-Roles/permissões por rota ainda não são exigidas; não há uma regra de 403 por escopo nesta etapa.
+Envie o **access token** do Auth0 em `Authorization: Bearer <token>`. A API valida a
+assinatura RS256 via JWKS, o issuer, a audience e a expiração:
 
-Configure `AUTH0_DOMAIN` (somente hostname, sem https:// nem barra final) e
-`AUTH0_AUDIENCE` (Identifier da API no Auth0). O valor `https://erp-banking-api`
-no exemplo precisa ser confirmado no painel e deve coincidir com `VITE_AUTH0_AUDIENCE`.
-Não use ID token ou token opaco. Nenhuma credencial de client secret é necessária para validar JWT.
+- sem token ou com token inválido: **401** (`WWW-Authenticate: Bearer`);
+- token válido sem a permissão da rota: **403** (permissões da claim `permissions` do RBAC
+  do Auth0, ou de `scope` em tokens machine-to-machine);
+- `AUTH0_*` não configurado: **503** (nenhuma rota de negócio fica liberada).
 
-CORS permite `http://localhost:5173`, os métodos utilizados e os headers
-`Authorization` e `Content-Type`. Configure `CORS_ORIGINS` para produção.
-
-Os testes usam chaves RSA e tokens locais ou autenticação simulada, sem chamadas ao Auth0.
-
-**Pendente de decisão:** as chamadas Score → Onboarding e Transactions → Score
-precisam de propagação do token do usuário ou Machine-to-Machine. Os clients atuais
-ainda não enviam credenciais: esses fluxos entre serviços retornarão erro até a escolha ser implementada.
-
-Python carrega `.env` automaticamente. `CORS_ORIGINS` usa JSON, por exemplo
-`["http://localhost:5173","https://app.example.com"]`. Sem configuração Auth0,
-requisições com Bearer recebem 503; nenhuma rota de negócio é liberada.
-`/docs`, `/redoc` e `/openapi.json` também exigem Bearer (abra com um cliente que envie o header).
+O Credit Score chama `GET /customers/{id}` repassando o token do usuário (token relay), então
+quem calcula score também precisa de `read:customers`. Detalhes em [docs/auth.md](docs/auth.md).
