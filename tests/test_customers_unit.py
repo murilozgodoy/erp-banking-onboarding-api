@@ -86,3 +86,15 @@ def test_create_customer_with_full_payload(db_session):
     assert customer.address is not None
     assert customer.address.cidade == "São Paulo"
     assert customer.financial_profile.renda_mensal == 12000.0
+
+
+def test_search_filters_by_name_and_cpf_digits(db_session):
+    service = CustomerService(db_session)
+    service.create(_payload())
+    service.create(CustomerCreate(nome="Carlos", cpf="111.222.333-44", email="c@example.com", telefone="11977776666"))
+
+    assert [c.nome for c in service.search()] == ["Carlos", "Maria"]
+    assert [c.nome for c in service.search("MAR")] == ["Maria"]
+    assert [c.nome for c in service.search("  ")] == ["Carlos", "Maria"]
+    assert [c.nome for c in service.search("222")] == ["Carlos"]
+    assert service.search("inexistente") == []

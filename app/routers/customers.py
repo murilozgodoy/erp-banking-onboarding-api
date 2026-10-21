@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -26,6 +26,20 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
     except CustomerAlreadyExistsError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return customer
+
+
+@router.get(
+    "",
+    response_model=list[CustomerOut],
+    dependencies=[Depends(require_permission("read:customers"))],
+)
+def list_customers(
+    q: str | None = Query(default=None, max_length=120, description="Nome ou CPF"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return CustomerService(db).search(q, limit, offset)
 
 
 @router.get(
