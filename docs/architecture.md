@@ -7,7 +7,7 @@ app/
 │   ├── settings.py      # Settings (pydantic-settings, lê .env)
 │   └── database.py      # engine, SessionLocal, Base, get_db
 ├── core/
-│   └── security.py      # require_auth: validação do JWT Auth0 (JWKS/RS256)
+│   └── security.py      # require_auth (JWT Auth0, JWKS/RS256) e require_permission (RBAC, 403)
 ├── models/              # entidades SQLAlchemy (um arquivo por tabela)
 ├── schemas/             # DTOs Pydantic de entrada/saída
 ├── services/            # regras de negócio e acesso a dados via Session do ORM; exceções de domínio
@@ -27,6 +27,7 @@ Os `schemas` validam a entrada e serializam a saída no router.
 - Novas tabelas: criar o arquivo em `app/models/` e exportar em `app/models/__init__.py`
   (necessário para `Base.metadata.create_all` enxergá-las).
 - Exceções de domínio ficam no service; o router converte para `HTTPException`.
+- Rotas declaram a permissão exigida com `Depends(require_permission("read:customers"))`.
 - Testes substituem dependências com `app.dependency_overrides` (`get_db`, `require_auth`).
 
 ## Tabelas (schema onboarding)
