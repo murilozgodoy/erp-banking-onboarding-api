@@ -3,6 +3,7 @@
 Empty RABBITMQ_URL = messaging disabled (no-op, no metric). A publish failure never
 propagates: it is logged and counted as events_published_total{result="error"}.
 """
+import asyncio
 import json
 import logging
 import uuid
@@ -55,6 +56,9 @@ class EventPublisher:
         self._connection = None
         self._channel = None
         self._exchange = None
+        # Serializa connect/close: sem isso, publishes concorrentes após uma falha no startup
+        # abririam várias conexões e algumas ficariam penduradas.
+        self._lock = asyncio.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -64,18 +68,26 @@ class EventPublisher:
         """Connect and declare the exchange; on failure log and retry lazily on publish."""
         if not self.enabled or self._exchange is not None:
             return
-        try:
-            self._connection = await aio_pika.connect_robust(self.url)
-            self._channel = await self._connection.channel()
-            self._exchange = await self._channel.declare_exchange(
-                EXCHANGE_NAME, aio_pika.ExchangeType.TOPIC, durable=True
-            )
-            logger.info("Conectado ao RabbitMQ (exchange %s)", EXCHANGE_NAME)
-        except Exception:
-            logger.exception("Falha ao conectar no RabbitMQ; nova tentativa no próximo publish")
-            await self.close()
+        async with self._lock:
+            if self._exchange is not None:  # double-checked: outra task já conectou
+                return
+            try:
+                self._connection = await aio_pika.connect_robust(self.url)
+                self._channel = await self._connection.channel()
+                self._exchange = await self._channel.declare_exchange(
+                    EXCHANGE_NAME, aio_pika.ExchangeType.TOPIC, durable=True
+                )
+                logger.info("Conectado ao RabbitMQ (exchange %s)", EXCHANGE_NAME)
+            except Exception:
+                logger.exception("Falha ao conectar no RabbitMQ; nova tentativa no próximo publish")
+                await self._close_unlocked()
 
     async def close(self) -> None:
+        """Fecha a conexão; idempotente (pode ser chamado várias vezes, inclusive sem conexão)."""
+        async with self._lock:
+            await self._close_unlocked()
+
+    async def _close_unlocked(self) -> None:
         connection = self._connection
         self._connection = self._channel = self._exchange = None
         if connection is not None:
