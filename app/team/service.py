@@ -6,7 +6,9 @@ Regras (PORTAL_CLIENTE.md, seção 11, e decisões documentadas no README):
   promovido a DONO na v1. Todo UPDATE/DELETE leva `papel <> 'DONO'` no WHERE (compare-and-set), então
   nenhuma corrida consegue tirar o DONO da empresa.
 - Ninguém edita nem remove a si mesmo (evita autoescalada de papel, permissões ou limite).
-- Quem não é DONO só concede permissões que ele mesmo tem.
+- Quem não é DONO só concede permissões que ele mesmo tem, só define `limite_pagamento` até o próprio (null só
+  se o dele for null) e só gerencia, convida ou atribui papéis abaixo do seu (DONO > ADMIN > FINANCEIRO >
+  OPERADOR > LEITURA).
 - Edição com compare-and-set em `updated_at` (otimista): duas edições simultâneas → a segunda recebe 409.
 - O token do convite é `secrets.token_urlsafe(32)`, guardado só como sha256 e válido por 7 dias; aparece
   apenas no `convite_url` da resposta de criação.
@@ -16,6 +18,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import case, delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -33,6 +36,7 @@ from app.team.permissions import (
     CONVIDADO,
     DONO,
     DONO_PERMISSAO,
+    PAPEIS,
     GERENCIAR_EQUIPE,
     SUSPENSO,
     canonical,
@@ -65,6 +69,10 @@ CONFLITO_CONCORRENTE = "CONFLITO_CONCORRENTE"
 CONVITE_NAO_ENCONTRADO = "CONVITE_NAO_ENCONTRADO"
 CONVITE_EXPIRADO = "CONVITE_EXPIRADO"
 JA_VINCULADO = "JA_VINCULADO"
+
+# pseudo-permissões dos 403 SEM_PERMISSAO de escalada
+LIMITE_PERMISSAO = "limite_pagamento"
+HIERARQUIA_PERMISSAO = "hierarquia"
 
 
 def hash_token(token: str) -> str:
@@ -131,6 +139,22 @@ class TeamService:
         if missing:
             raise ApiError(403, SEM_PERMISSAO, permissao=missing[0])
 
+    @staticmethod
+    def _check_rank(actor: CompanyMember, papel: str) -> None:
+        """Quem não é DONO só age sobre (ou atribui) papéis estritamente abaixo do seu."""
+        if actor.papel == DONO:
+            return
+        if PAPEIS.index(papel) <= PAPEIS.index(actor.papel):
+            raise ApiError(403, SEM_PERMISSAO, permissao=HIERARQUIA_PERMISSAO)
+
+    @staticmethod
+    def _check_limit(actor: CompanyMember, limite) -> None:
+        """Quem não é DONO só define limite até o próprio; null (sem limite) só se o dele for null."""
+        if actor.papel == DONO or actor.limite_pagamento is None:
+            return
+        if limite is None or Decimal(str(limite)) > Decimal(str(actor.limite_pagamento)):
+            raise ApiError(403, SEM_PERMISSAO, permissao=LIMITE_PERMISSAO)
+
     def _target(self, actor: CompanyMember, member_id: int) -> CompanyMember:
         target = self.db.scalar(
             select(CompanyMember).where(
@@ -143,6 +167,7 @@ class TeamService:
             raise ApiError(403, AUTO_EDICAO)
         if target.papel == DONO:
             raise ApiError(403, DONO_PROTEGIDO)
+        self._check_rank(actor, target.papel)
         return target
 
     # ---------- operações ----------
@@ -157,6 +182,8 @@ class TeamService:
 
     def invite(self, actor: CompanyMember, data: InviteIn) -> tuple[CompanyMember, str]:
         permissoes = data.permissoes if data.permissoes is not None else preset(data.papel)
+        self._check_rank(actor, data.papel)
+        self._check_limit(actor, data.limite_pagamento)
         self._check_grant(actor, permissoes)
         email = data.email.lower()
         existing = self.db.scalar(
@@ -194,6 +221,10 @@ class TeamService:
             raise ApiError(409, DONO_UNICO)  # sem transferência de posse na v1
 
         papel = patch.papel or target.papel
+        if papel != target.papel:
+            self._check_rank(actor, papel)
+        if "limite_pagamento" in fields and patch.limite_pagamento != target.limite_pagamento:
+            self._check_limit(actor, patch.limite_pagamento)
         current = canonical(target.permissoes)
         if patch.permissoes is not None:
             permissoes = patch.permissoes
