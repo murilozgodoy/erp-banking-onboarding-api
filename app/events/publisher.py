@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 EXCHANGE_NAME = "erp.events"
 CUSTOMER_CREATED = "customer.created"
 ANAMNESIS_UPDATED = "customer.anamnesis_updated"
+ONBOARDING_SUBMITTED = "customer.onboarding_submitted"
 
 
 def _envelope(event_type: str, **payload: Any) -> dict[str, Any]:
@@ -47,6 +48,20 @@ def anamnesis_updated_event(customer_id: int, anamnesis) -> dict[str, Any]:
         customer_id=customer_id,
         dividas_ativas=anamnesis.dividas_ativas,
         comprometimento_renda=anamnesis.comprometimento_renda,
+    )
+
+
+def onboarding_submitted_event(
+    customer, empresa: dict, respostas: dict, observacoes: str | None
+) -> dict[str, Any]:
+    return _envelope(
+        ONBOARDING_SUBMITTED,
+        customer_id=customer.id,
+        auth0_sub=customer.auth0_sub,
+        segmento=customer.segmento,
+        empresa=empresa,
+        respostas=respostas,
+        observacoes=observacoes,
     )
 
 

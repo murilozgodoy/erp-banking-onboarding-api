@@ -99,6 +99,8 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | GET    | `/customers/{id}`              | `read:customers`  | Consulta cliente (usado pelo Credit Score)           |
 | PUT    | `/customers/{id}/anamnesis`    | `write:customers` | Cria/atualiza a anamnese                             |
 | GET    | `/me`                          | `read:self`       | Customer vinculado ao `sub` do token (portal)        |
+| GET    | `/me/onboarding`               | `read:self`       | Rascunho ou envio atual do onboarding PJ             |
+| PUT    | `/me/onboarding`               | `write:self`      | Salva rascunho (`enviar=false`) ou envia (`enviar=true`) |
 
 ### Portal do cliente (Fase 2)
 
@@ -113,6 +115,27 @@ ficam em `business_profiles`, junto com `segmento`, `respostas`, `observacoes`, 
 Migração: `create_all` não altera tabelas existentes, então `app/config/migrations.py` roda no startup e, só em
 PostgreSQL, aplica `ADD COLUMN IF NOT EXISTS` das colunas novas, `cpf DROP NOT NULL` e os índices únicos de
 `auth0_sub`/`cnpj` (idempotente; no-op em SQLite).
+
+**Onboarding PJ (`/me/onboarding`).** `GET` responde `{empresa, segmento, respostas, observacoes,
+onboarding_status, updated_at}` (sem customer: `empresa: null`, `respostas: {}`, `NAO_INICIADO`). `PUT` recebe
+`{empresa, segmento, respostas, observacoes, enviar}`, cria ou atualiza o customer PJ do `sub` (o corpo
+**substitui** o estado salvo) e responde no mesmo formato do `GET`.
+
+- `empresa` é validada sempre (inclusive no rascunho), com 422 no formato padrão do FastAPI: `cnpj` com
+  14 dígitos e DV válido (aceita máscara, guardado só com dígitos), `estado` = UF válida (maiúscula), `email`,
+  `telefone` (8 a 20), `fundacao_ano` (até o ano atual), `funcionarios` ≥ 0. `segmento` deve ser um dos templates.
+- `enviar=false` → `RASCUNHO` (dados parciais aceitos).
+- `enviar=true` exige `empresa.razao_social|cnpj|email|telefone|cidade|estado`, `segmento` e as respostas
+  válidas no template (`app.templates.validate_respostas`). Falha → **422**
+  `{"detail": "Onboarding incompleto ou inválido", "campos": [{"campo": "empresa.cnpj"|"segmento"|"<id do campo>", "erro": "..."}]}`
+  e nada é salvo. Sucesso → `EM_ANALISE`, `submitted_at`, publica `customer.onboarding_submitted`
+  (`customer_id, auth0_sub, segmento, empresa, respostas, observacoes` + envelope).
+- Editar/reenviar só a partir de `RASCUNHO` ou `REPROVADO` (no reenvio, a análise e a revisão anteriores são
+  limpas); em `EM_ANALISE`, `ANALISE_MANUAL` ou `APROVADO` → **409**. CNPJ de outro customer → **409**.
+- **Decisão:** o cadastro PJ **não** publica `customer.created`; o seeder do Transactions abre a conta PJ a partir
+  de `customer.onboarding_submitted`.
+- Métricas: `onboarding_submissions_total{segmento}` (séries zeradas para os 9 segmentos) e
+  `onboarding_drafts_saved_total`.
 
 ## Templates de onboarding por segmento
 

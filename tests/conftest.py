@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.config.database import Base, get_db
 from app.main import app
 from app.core.security import Principal, require_auth
+from app.events import publisher as publisher_module
 
 ALL_PERMISSIONS = frozenset({
     "read:customers", "write:customers", "read:self", "write:self", "review:onboarding",
@@ -75,3 +79,17 @@ def sample_customer_payload():
             "ocupacao": "CLT",
         },
     }
+
+
+@pytest.fixture()
+def broker(monkeypatch):
+    exchange = MagicMock()
+    exchange.publish = AsyncMock()
+    channel = MagicMock()
+    channel.declare_exchange = AsyncMock(return_value=exchange)
+    connection = MagicMock()
+    connection.channel = AsyncMock(return_value=channel)
+    connection.close = AsyncMock()
+    connect = AsyncMock(return_value=connection)
+    monkeypatch.setattr(publisher_module.aio_pika, "connect_robust", connect)
+    return SimpleNamespace(connect=connect, connection=connection, channel=channel, exchange=exchange)
