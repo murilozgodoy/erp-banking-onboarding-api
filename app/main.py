@@ -11,7 +11,7 @@ from app.core.logging import RequestIDMiddleware, configure_logging
 from app.core.metrics import setup_metrics
 from app.core.security import require_auth
 from app.events import EventPublisher
-from app.routers import customers, health
+from app.routers import customers, health, templates
 
 
 def _openapi_url(request: Request) -> str:
@@ -51,6 +51,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestIDMiddleware)  # mais externo: cobre CORS, auth e erros
     app.include_router(customers.router, dependencies=[Depends(require_auth)])
+    app.include_router(templates.router, dependencies=[Depends(require_auth)])
 
     @app.get("/openapi.json", dependencies=[Depends(require_auth)], include_in_schema=False)
     def openapi(request: Request):
