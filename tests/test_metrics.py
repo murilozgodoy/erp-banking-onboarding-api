@@ -32,3 +32,12 @@ def test_customers_created_counter_increments(client, sample_customer_payload):
 def test_create_app_twice_does_not_duplicate_metrics():
     create_app()
     create_app()
+
+
+def test_events_published_series_initialized_with_zero(client):
+    from app.core.metrics import init_metrics
+
+    init_metrics()  # idempotente
+    body = client.get("/metrics").text
+    assert 'events_published_total{result="error",routing_key="customer.created"} ' in body
+    assert 'events_published_total{result="ok",routing_key="customer.anamnesis_updated"} ' in body
