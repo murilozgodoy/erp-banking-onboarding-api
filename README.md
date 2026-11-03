@@ -217,12 +217,17 @@ Tabela `company_members`: `id`, `customer_id`, `auth0_sub` (nulo até aceitar), 
 - **Aceite:** só `read:self`. Grava o `sub`, muda para ATIVO e limpa o hash. Idempotente para o mesmo `sub`.
 - **PATCH:** trocar o `papel` sem mandar `permissoes` aplica o preset; `limite_pagamento: null` remove o limite.
 - **Regras de proteção:** o DONO não é editável, suspenso nem removido; ninguém vira DONO na v1; ninguém edita ou
-  remove a si mesmo; quem não é DONO só concede permissões que tem. Todo UPDATE/DELETE leva `customer_id` e
+  remove a si mesmo; quem não é DONO só concede permissões que tem, só define `limite_pagamento` até o próprio
+  (`null`, sem limite, só se o dele também for `null`) e só convida, atribui, edita, suspende, reativa ou remove
+  papéis abaixo do seu (DONO > ADMIN > FINANCEIRO > OPERADOR > LEITURA; ADMIN não gerencia ADMIN). O 404 de id
+  de outra empresa vem antes desses 403. Todo UPDATE/DELETE leva `customer_id` e
   `papel <> 'DONO'` no WHERE, e o PATCH compara o `updated_at` lido (otimista).
 
 | Status | `error`                  | Quando                                                            |
 | ------ | ------------------------ | ----------------------------------------------------------------- |
 | 403    | `SEM_PERMISSAO`          | Sem `gerenciar_equipe`, ou concedendo permissão que não tem       |
+| 403    | `SEM_PERMISSAO` + `"permissao":"limite_pagamento"` | Não-DONO definindo limite acima do próprio, ou `null` tendo limite |
+| 403    | `SEM_PERMISSAO` + `"permissao":"hierarquia"` | Não-DONO agindo sobre ou atribuindo papel igual/acima do seu |
 | 403    | `DONO_PROTEGIDO`         | Editar, suspender ou remover o DONO                               |
 | 403    | `AUTO_EDICAO`            | Editar ou remover a si mesmo                                      |
 | 404    | `MEMBRO_NAO_ENCONTRADO`  | Id inexistente ou de outra empresa                                |

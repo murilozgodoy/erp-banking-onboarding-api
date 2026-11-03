@@ -203,11 +203,11 @@ def test_invite_race_on_unique_index_is_409(db_session, company, monkeypatch):
 
 def test_manager_cannot_grant_permissions_he_lacks(client, db_session, company):
     customer_id, _ = company
-    _member(db_session, customer_id, "auth0|rh", papel="LEITURA",
+    _member(db_session, customer_id, "auth0|rh", papel="FINANCEIRO",
             permissoes=["ver_financeiro", "gerenciar_equipe"])
     alvo = _member(db_session, customer_id, "auth0|alvo", papel="LEITURA")
     _as("auth0|rh")
-    denied = _invite(client, papel="FINANCEIRO")
+    denied = _invite(client, papel="OPERADOR")
     assert denied.status_code == 403 and denied.json() == {"error": "SEM_PERMISSAO", "permissao": "pagar"}
     assert _invite(client, papel="LEITURA").status_code == 201
     patch = client.patch(f"/me/team/{alvo.id}", json={"permissoes": ["ver_financeiro", "pedir_credito"]})
@@ -536,3 +536,96 @@ def test_first_onboarding_put_updates_gauge(client):
 def test_invite_url_helper(monkeypatch):
     monkeypatch.setattr(settings, "front_url", "")
     assert service_module.invite_url("abc") == "https://erp-banking-front.vercel.app/convite/abc"
+
+
+# ---------- escalada: limite de pagamento e hierarquia de papéis ----------
+
+LIMITE_NEGADO = {"error": "SEM_PERMISSAO", "permissao": "limite_pagamento"}
+HIERARQUIA_NEGADA = {"error": "SEM_PERMISSAO", "permissao": "hierarquia"}
+
+
+def _admin(db, customer_id, sub="auth0|adm", **kw):
+    return _member(db, customer_id, sub, papel="ADMIN", **kw)
+
+
+def test_invite_limit_rules(client, db_session, company):
+    customer_id = company[0]
+    _admin(db_session, customer_id, limite_pagamento=1000)
+    _admin(db_session, customer_id, sub="auth0|adm-livre")  # limite null
+    _as("auth0|adm")
+    response = _invite(client, limite_pagamento=5000)  # convite com limite alto
+    assert response.status_code == 403 and response.json() == LIMITE_NEGADO
+    response = _invite(client, limite_pagamento=None)  # sem limite > qualquer limite
+    assert response.status_code == 403 and response.json() == LIMITE_NEGADO
+    assert _invite(client, limite_pagamento=1000).status_code == 201
+    _as("auth0|adm-livre")
+    assert _invite(client, email="b@x.com", limite_pagamento=None).status_code == 201
+    assert _invite(client, email="c@x.com", limite_pagamento=999999).status_code == 201
+
+
+def test_patch_limit_rules(client, db_session, company):
+    customer_id = company[0]
+    _admin(db_session, customer_id, limite_pagamento=1000)
+    _admin(db_session, customer_id, sub="auth0|adm-livre")
+    op = _member(db_session, customer_id, "auth0|op", papel="OPERADOR", limite_pagamento=100)
+    _as("auth0|adm")
+    for limite in (1001, None):  # subir acima do próprio ou tirar o limite
+        response = client.patch(f"/me/team/{op.id}", json={"limite_pagamento": limite})
+        assert response.status_code == 403 and response.json() == LIMITE_NEGADO
+    response = client.patch(f"/me/team/{op.id}", json={"limite_pagamento": 1000})
+    assert response.status_code == 200 and response.json()["limite_pagamento"] == 1000
+    _as("auth0|adm-livre")
+    response = client.patch(f"/me/team/{op.id}", json={"limite_pagamento": None})
+    assert response.status_code == 200 and response.json()["limite_pagamento"] is None
+
+
+def test_admin_vs_admin_hierarchy(client, db_session, company):
+    customer_id = company[0]
+    _admin(db_session, customer_id)
+    other = _admin(db_session, customer_id, sub="auth0|adm2")
+    suspenso = _admin(db_session, customer_id, sub="auth0|adm3", status="SUSPENSO")
+    op = _member(db_session, customer_id, "auth0|op", papel="OPERADOR")
+    leitura = _member(db_session, customer_id, "auth0|lei", papel="LEITURA")
+    outra = make_pj(db_session, sub="auth0|outra", cnpj="11444777000161")
+    alheio = _member(db_session, outra.id, "auth0|adm-outra", papel="ADMIN")
+    _as("auth0|adm")
+    for response in (
+        client.patch(f"/me/team/{other.id}", json={"limite_pagamento": 1}),
+        client.patch(f"/me/team/{other.id}", json={"status": "SUSPENSO"}),
+        client.patch(f"/me/team/{suspenso.id}", json={"status": "ATIVO"}),
+        client.delete(f"/me/team/{other.id}"),
+        client.patch(f"/me/team/{op.id}", json={"papel": "ADMIN"}),
+        _invite(client, papel="ADMIN"),
+    ):
+        assert response.status_code == 403 and response.json() == HIERARQUIA_NEGADA
+    # id de outra empresa: 404 antes do 403 de hierarquia
+    assert client.patch(f"/me/team/{alheio.id}", json={"limite_pagamento": None}).status_code == 404
+    assert client.delete(f"/me/team/{alheio.id}").status_code == 404
+    # papéis abaixo: permitido
+    assert client.patch(f"/me/team/{op.id}", json={"papel": "FINANCEIRO"}).status_code == 200
+    assert client.patch(f"/me/team/{op.id}", json={"status": "SUSPENSO"}).status_code == 200
+    assert client.delete(f"/me/team/{leitura.id}").status_code == 204
+    assert _invite(client, papel="FINANCEIRO").status_code == 201
+
+
+def test_lower_papel_cannot_manage_higher(client, db_session, company):
+    customer_id = company[0]
+    _member(db_session, customer_id, "auth0|fin", papel="FINANCEIRO",
+            permissoes=preset("FINANCEIRO") + ["gerenciar_equipe"])
+    adm = _admin(db_session, customer_id)
+    _as("auth0|fin")
+    response = client.delete(f"/me/team/{adm.id}")
+    assert response.status_code == 403 and response.json() == HIERARQUIA_NEGADA
+
+
+def test_dono_unrestricted_by_limit_and_hierarchy(client, db_session, company):
+    customer_id = company[0]
+    adm = _admin(db_session, customer_id, limite_pagamento=10)
+    _as("auth0|adm")
+    assert _invite(client, papel="ADMIN", limite_pagamento=None).status_code == 403
+    _as(DONO_SUB)
+    assert _invite(client, papel="ADMIN", limite_pagamento=None).status_code == 201
+    response = client.patch(f"/me/team/{adm.id}", json={"limite_pagamento": None, "status": "SUSPENSO"})
+    assert response.status_code == 200 and response.json()["limite_pagamento"] is None
+    assert client.patch(f"/me/team/{adm.id}", json={"status": "ATIVO"}).status_code == 200
+    assert client.delete(f"/me/team/{adm.id}").status_code == 204
