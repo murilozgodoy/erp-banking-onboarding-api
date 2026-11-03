@@ -22,6 +22,7 @@ CUSTOMER_CREATED = "customer.created"
 ANAMNESIS_UPDATED = "customer.anamnesis_updated"
 ONBOARDING_SUBMITTED = "customer.onboarding_submitted"
 ONBOARDING_REVIEWED = "customer.onboarding_reviewed"
+MEMBER_CHANGED = "company.member_changed"
 
 
 def _envelope(event_type: str, event_id: str | None = None, **payload: Any) -> dict[str, Any]:
@@ -77,6 +78,20 @@ def onboarding_reviewed_event(
         decisao=decisao,
         comentario=comentario,
         reviewer=reviewer,
+    )
+
+
+def member_changed_event(
+    customer_id: int, member_id: int, acao: str, papel: str, permissoes: list[str]
+) -> dict[str, Any]:
+    """Auditoria da equipe (sem consumidor obrigatório). acao: CONVIDADO|ATUALIZADO|SUSPENSO|REATIVADO|REMOVIDO|ACEITO."""
+    return _envelope(
+        MEMBER_CHANGED,
+        customer_id=customer_id,
+        member_id=member_id,
+        acao=acao,
+        papel=papel,
+        permissoes=list(permissoes),
     )
 
 

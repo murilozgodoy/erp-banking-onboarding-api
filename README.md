@@ -88,6 +88,7 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | `RABBITMQ_URL`   | vazio                       | Ex.: `amqp://erp:erp@rabbitmq:5672/`. Vazio = eventos desligados (no-op)     |
 | `OUTBOX_POLL_SECONDS` | `10`                   | Intervalo do relay do outbox (republica eventos pendentes). `<= 0` desliga   |
 | `ROOT_PATH`      | vazio                       | Prefixo do gateway (ex.: `/onboarding`) para o `/docs` funcionar atrás dele |
+| `FRONT_URL`      | vazio                       | Base do link de convite da equipe (vazio = `https://erp-banking-front.vercel.app`) |
 
 ## Endpoints
 
@@ -104,6 +105,8 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | PUT    | `/me/onboarding`               | `write:self`      | Salva rascunho (`enviar=false`) ou envia (`enviar=true`) |
 | GET    | `/onboarding/reviews?status=`  | `review:onboarding` | Fila de análise (padrão `ANALISE_MANUAL`)          |
 | POST   | `/onboarding/reviews/{customer_id}/decision` | `review:onboarding` | `{decisao: APROVADO\|REPROVADO, comentario}` |
+| GET/POST/PATCH/DELETE | `/me/team...` | `read:self`/`write:self` + `gerenciar_equipe` | Equipe da empresa (ver abaixo) |
+| POST   | `/me/team/invites/{token}/accept` | `read:self` | Aceita o convite da equipe |
 
 ### Portal do cliente (Fase 2)
 
@@ -224,6 +227,48 @@ curta que relê em caso de conflito); senão, membro ATIVO por `company_members.
 **Decisão:** `GET /me/onboarding` funciona para qualquer membro ATIVO (leitura da empresa). `PUT /me/onboarding`
 só para o DONO (ou para quem ainda não tem empresa, que vira o DONO); membro que não é DONO → 403
 `{"error":"SEM_PERMISSAO","permissao":"dono"}`.
+
+**Rotas da equipe** (todas exigem um membro ATIVO com `gerenciar_equipe`, menos o aceite; senão 403
+`{"error":"SEM_PERMISSAO","permissao":"gerenciar_equipe"}`; GET exige `read:self` e as escritas `write:self` no token):
+
+| Método | Rota | Resposta |
+| --- | --- | --- |
+| GET | `/me/team` | `[{id, nome, email, papel, permissoes, limite_pagamento, status, convite_expira_em, created_at, updated_at}]` (DONO primeiro; nunca o token, o hash nem o `sub`) |
+| POST | `/me/team/invites` | `{email, nome, papel, permissoes?, limite_pagamento?}` → 201 `{membro, convite_url}` |
+| PATCH | `/me/team/{id}` | `{papel?, permissoes?, limite_pagamento?, status?: ATIVO\|SUSPENSO}` → o item atualizado |
+| DELETE | `/me/team/{id}` | 204 (revoga o convite ou remove o membro) |
+| POST | `/me/team/invites/{token}/accept` | só `read:self` → `{customer_id, membro}` (mesmo formato do `membro` do `GET /me`) |
+
+- **Convite:** `papel` em `ADMIN|FINANCEIRO|OPERADOR|LEITURA` (DONO → 422); `permissoes` ausente = preset do papel,
+  e uma permissão fora da lista dá 422. O e-mail é guardado em minúsculas; e-mail que já existe na empresa (qualquer
+  status, inclusive o do DONO) → 409 `{"error":"EMAIL_JA_CADASTRADO"}` (para um suspenso, reative com PATCH). O token
+  é `secrets.token_urlsafe(32)`, guardado só como sha256 e válido por 7 dias. O link é
+  `{FRONT_URL ou https://erp-banking-front.vercel.app}/convite/<token>` e só aparece na resposta da criação. Sem
+  envio de e-mail na v1.
+- **Aceite:** busca pelo hash. Token desconhecido → 404 `{"error":"CONVITE_NAO_ENCONTRADO"}`, expirado → 410
+  `{"error":"CONVITE_EXPIRADO"}`, e um `sub` que já é dono de empresa ou já está vinculado a um membro → 409
+  `{"error":"JA_VINCULADO"}`. Senão grava o `sub`, muda para ATIVO e limpa o hash e a validade (compare-and-set no
+  hash + status, e o índice único de `auth0_sub` cobre a corrida com o `PUT /me/onboarding`). **Idempotente:** como o
+  hash é limpo, um segundo aceite do mesmo `sub` cai no "token desconhecido" e devolve o vínculo atual (200); para
+  outro `sub` o resultado é 404.
+- **PATCH:** trocar o `papel` sem mandar `permissoes` aplica o preset; `limite_pagamento: null` explícito remove o
+  limite. Mudar o status de um convite pendente → 409 `{"error":"CONVITE_PENDENTE"}` (revogue com DELETE).
+- **Regras de proteção:**
+  - **Exatamente um DONO**, e ele não é editável, suspenso nem removido: 403 `{"error":"DONO_PROTEGIDO"}`.
+  - Ninguém vira DONO na v1. Quem não é DONO recebe 403 `SEM_PERMISSAO/dono` e o DONO recebe 409
+    `{"error":"DONO_UNICO"}`; não há transferência de posse.
+  - **Ninguém edita nem remove a si mesmo** (evita autoescalada de papel, permissões ou limite): 403
+    `{"error":"AUTO_EDICAO"}`.
+  - Quem não é DONO só concede permissões que ele mesmo tem: 403 `SEM_PERMISSAO` com a permissão que falta.
+  - Um id de outra empresa → 404 `{"error":"MEMBRO_NAO_ENCONTRADO"}`.
+- **Concorrência:** todo UPDATE/DELETE leva `customer_id` e `papel <> 'DONO'` no WHERE (compare-and-set: nenhuma
+  corrida tira o DONO). O PATCH também compara o `updated_at` lido (otimista): uma edição simultânea → 409
+  `{"error":"CONFLITO_CONCORRENTE"}`. As transações são curtas (uma por requisição).
+- **Evento** `company.member_changed` (`customer_id, member_id, acao, papel, permissoes` + envelope), com
+  `acao` = `CONVIDADO|ATUALIZADO|SUSPENSO|REATIVADO|REMOVIDO|ACEITO`. É gravado no outbox na mesma transação e não
+  tem consumidor obrigatório (auditoria).
+- **Métrica** `team_members_total{papel,status}` (gauge): lida do banco no startup e depois de cada mudança, com as
+  15 séries zeradas.
 
 ## Templates de onboarding por segmento
 

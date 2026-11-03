@@ -12,6 +12,7 @@ from app.events.outbox import enqueue
 from app.events.publisher import ONBOARDING_SUBMITTED, onboarding_submitted_event
 from app.models import BusinessProfile, CompanyMember, Customer
 from app.models.customer import TIPO_PJ
+from app.team.members import refresh_team_members
 from app.team.permissions import ATIVO, DONO, preset
 from app.schemas.onboarding import OnboardingIn
 from app.templates import validate_respostas
@@ -250,4 +251,6 @@ class OnboardingService:
             raise OnboardingConflictError("Onboarding já cadastrado para este usuário ou CNPJ") from exc
         self.db.refresh(customer)
         refresh_manual_queue(self.db)
+        if creating:
+            refresh_team_members(self.db)
         return customer

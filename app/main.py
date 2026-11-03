@@ -16,8 +16,9 @@ from app.core.security import require_auth
 from app.events import EventPublisher
 from app.events.outbox import OutboxRelay
 from app.messaging.consumer import BINDINGS, EventConsumer
-from app.routers import customers, health, me, reviews, templates
+from app.routers import customers, health, me, reviews, team, templates
 from app.services.onboarding_service import refresh_manual_queue
+from app.team.members import refresh_team_members
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,19 @@ def _init_manual_queue_gauge() -> None:
         logger.exception("Falha ao inicializar onboarding_manual_queue_size")
 
 
+def _init_team_gauge() -> None:
+    """team_members_total a partir do banco no startup; falha só é logada."""
+    try:
+        with SessionLocal() as db:
+            refresh_team_members(db)
+    except Exception:
+        logger.exception("Falha ao inicializar team_members_total")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_manual_queue_gauge()
+    _init_team_gauge()
     await app.state.publisher.connect()
     app.state.consumer.start()
     app.state.outbox_relay.start()
@@ -87,6 +98,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)  # mais externo: cobre CORS, auth e erros
     app.include_router(customers.router, dependencies=[Depends(require_auth)])
     app.include_router(me.router, dependencies=[Depends(require_auth)])
+    app.include_router(team.router, dependencies=[Depends(require_auth)])
     app.include_router(templates.router, dependencies=[Depends(require_auth)])
     app.include_router(reviews.router, dependencies=[Depends(require_auth)])
 
