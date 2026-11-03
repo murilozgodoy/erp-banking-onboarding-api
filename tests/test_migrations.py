@@ -32,4 +32,7 @@ def test_run_migrations_executes_on_postgres():
     conn = engine.begin.return_value.__enter__.return_value
     run_migrations(engine)
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
-    assert executed == migration_statements("postgresql")
+    statements = migration_statements("postgresql")
+    assert executed[:len(statements)] == statements
+    # depois do schema, a migração de dados (DONO das empresas PJ) numa transação própria
+    assert "INSERT INTO company_members" in executed[len(statements)]

@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.metrics import ONBOARDING_MANUAL_QUEUE
 from app.events.outbox import enqueue
 from app.events.publisher import ONBOARDING_SUBMITTED, onboarding_submitted_event
-from app.models import BusinessProfile, Customer
+from app.models import BusinessProfile, CompanyMember, Customer
 from app.models.customer import TIPO_PJ
+from app.team.permissions import ATIVO, DONO, preset
 from app.schemas.onboarding import OnboardingIn
 from app.templates import validate_respostas
 
@@ -35,6 +36,8 @@ EMPRESA_OBRIGATORIOS = ("razao_social", "cnpj", "email", "telefone", "cidade", "
 
 
 NOME_MAX = Customer.__table__.c.nome.type.length  # razao_social aceita 160; nome é VARCHAR(120)
+
+_UNSET = object()
 
 
 class OnboardingConflictError(Exception):
@@ -110,17 +113,6 @@ def find_by_sub(db: Session, sub: str) -> Customer | None:
     )
 
 
-def me_view(db: Session, sub: str) -> dict:
-    customer = find_by_sub(db, sub)
-    if customer is None:
-        return {"customer_id": None, "onboarding_status": NAO_INICIADO, "empresa": None}
-    return {
-        "customer_id": customer.id,
-        "onboarding_status": customer.onboarding_status or NAO_INICIADO,
-        "empresa": empresa_dict(customer),
-    }
-
-
 def onboarding_view(customer: Customer | None) -> dict:
     if customer is None:
         return {
@@ -168,14 +160,17 @@ class OnboardingService:
         # (routing_key, payload) gravados no outbox no último save, para o publish rápido pós-commit
         self.events: list[tuple[str, dict]] = []
 
-    def save(self, sub: str, data: OnboardingIn) -> Customer:
+    def save(self, sub: str, data: OnboardingIn, customer=_UNSET) -> Customer:
         """Cria/atualiza o customer PJ do `sub` (substitui o estado salvo pelo corpo recebido).
 
+        `customer` é a empresa já resolvida (app.team.resolver); sem ele, busca pelo `sub` do dono.
+        Quem cria a empresa vira o DONO em company_members, na mesma transação do customer.
         enviar=false → RASCUNHO; enviar=true → valida tudo e vai para EM_ANALISE.
         Erros: OnboardingConflictError (status não editável ou CNPJ de outro cliente) e
         OnboardingValidationError (envio incompleto).
         """
-        customer = find_by_sub(self.db, sub)
+        if customer is _UNSET:
+            customer = find_by_sub(self.db, sub)
         if customer is not None and customer.onboarding_status not in EDITABLE_STATUSES:
             raise OnboardingConflictError(
                 f"Onboarding em {customer.onboarding_status} não pode ser alterado"
@@ -195,7 +190,8 @@ class OnboardingService:
         ):
             raise OnboardingConflictError("Onboarding alterado por outra requisição; recarregue")
 
-        if customer is None:
+        creating = customer is None
+        if creating:
             customer = Customer(auth0_sub=sub, tipo_pessoa=TIPO_PJ)
             self.db.add(customer)
         profile = customer.business_profile
@@ -232,6 +228,13 @@ class OnboardingService:
 
         self.events = []
         try:
+            if creating:
+                self.db.flush()  # customer.id para o DONO
+                self.db.add(CompanyMember(
+                    customer_id=customer.id, auth0_sub=sub, email=(empresa.email or "").lower(),
+                    nome=empresa.razao_social or "Dono", papel=DONO, permissoes=preset(DONO),
+                    status=ATIVO, created_by=sub,
+                ))
             if data.enviar:
                 self.db.flush()  # customer.id para o evento
                 event = onboarding_submitted_event(
@@ -241,7 +244,7 @@ class OnboardingService:
                 enqueue(self.db, ONBOARDING_SUBMITTED, event)  # mesma transação do EM_ANALISE
                 self.events.append((ONBOARDING_SUBMITTED, event))
             self.db.commit()
-        except IntegrityError as exc:  # corrida com outro envio do mesmo sub/CNPJ
+        except IntegrityError as exc:  # corrida com outro envio do mesmo sub/CNPJ ou aceite de convite
             self.events = []
             self.db.rollback()
             raise OnboardingConflictError("Onboarding já cadastrado para este usuário ou CNPJ") from exc

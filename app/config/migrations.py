@@ -4,6 +4,11 @@
 existentes. Em PostgreSQL (produção já tem `customers`) aplicamos as colunas da Fase 2 com
 `ADD COLUMN IF NOT EXISTS` (inclusive em `business_profiles`), tornamos o cpf opcional (clientes PJ não têm CPF) e criamos os
 índices únicos. Em SQLite (dev/testes) o create_all já cria o schema completo: no-op.
+
+Migração de dados (os dois dialetos): cria o DONO em `company_members` para cada cliente PJ que ainda não tem
+um (inclusive os semeados com `auth0_sub` nulo), com `INSERT ... SELECT ... WHERE NOT EXISTS ... ON CONFLICT DO
+NOTHING`. É barata e segura a cada boot e com réplicas concorrentes; uma falha só é logada (o resolver do
+`GET /me` cria/sincroniza o DONO sob demanda).
 """
 import logging
 
@@ -53,11 +58,25 @@ def migration_statements(dialect: str) -> list[str]:
 
 
 def run_migrations(engine: Engine) -> None:
-    """Aplica as migrações numa única transação; idempotente."""
+    """Aplica as migrações de schema numa única transação e depois a de dados; idempotente."""
     statements = migration_statements(engine.dialect.name)
-    if not statements:
+    if statements:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+        logger.info("Migrações da Fase 2 aplicadas (%d comandos)", len(statements))
+    run_data_migrations(engine)
+
+
+def run_data_migrations(engine: Engine) -> None:
+    """DONO para as empresas PJ sem DONO (transação própria e curta)."""
+    from app.team.members import backfill_owner_members  # evita import circular com os models
+
+    try:
+        with engine.begin() as conn:
+            created = backfill_owner_members(conn, engine.dialect.name)
+    except Exception:
+        logger.exception("Falha ao criar os DONOs de company_members; o GET /me cria sob demanda")
         return
-    with engine.begin() as conn:
-        for statement in statements:
-            conn.execute(text(statement))
-    logger.info("Migrações da Fase 2 aplicadas (%d comandos)", len(statements))
+    if created:
+        logger.info("company_members: %d DONO(s) criados para clientes PJ existentes", created)

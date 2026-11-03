@@ -13,7 +13,18 @@ class EmpresaOut(BaseModel):
     funcionarios: int | None = None
 
 
+class MembroOut(BaseModel):
+    id: int
+    nome: str
+    email: str
+    papel: str
+    permissoes: list[str]
+    limite_pagamento: float | None
+    status: str
+
+
 class MeOut(BaseModel):
     customer_id: int | None
     onboarding_status: str
     empresa: EmpresaOut | None
+    membro: MembroOut | None = None

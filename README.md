@@ -99,7 +99,7 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | POST   | `/customers`                   | `write:customers` | Cria cliente (endereço e perfil financeiro opcionais) |
 | GET    | `/customers/{id}`              | `read:customers`  | Consulta cliente (usado pelo Credit Score)           |
 | PUT    | `/customers/{id}/anamnesis`    | `write:customers` | Cria/atualiza a anamnese                             |
-| GET    | `/me`                          | `read:self`       | Customer vinculado ao `sub` do token (portal)        |
+| GET    | `/me`                          | `read:self`       | Empresa e `membro` do `sub` do token (dono ou membro) |
 | GET    | `/me/onboarding`               | `read:self`       | Rascunho ou envio atual do onboarding PJ             |
 | PUT    | `/me/onboarding`               | `write:self`      | Salva rascunho (`enviar=false`) ou envia (`enviar=true`) |
 | GET    | `/onboarding/reviews?status=`  | `review:onboarding` | Fila de análise (padrão `ANALISE_MANUAL`)          |
@@ -184,6 +184,46 @@ republicação (consumidores deduplicam). Conexões do banco só nas consultas c
 (`ok|duplicate|ignored|invalid|error`), `onboarding_reviews_total{decisao}` e o gauge
 `onboarding_manual_queue_size` (contagem de `ANALISE_MANUAL`, lida do banco no startup e atualizada após
 envio, decisão e consumo do evento do Score).
+
+### Equipe da empresa e permissões (Fase 2, seção 11)
+
+Tabela `company_members` (schema `onboarding`): `id`, `customer_id`, `auth0_sub` (nulo até aceitar o convite),
+`email` (minúsculas), `nome`, `papel` (`DONO|ADMIN|FINANCEIRO|OPERADOR|LEITURA`), `permissoes` (JSON, lista),
+`limite_pagamento` (numeric, nulo = sem limite), `status` (`CONVIDADO|ATIVO|SUSPENSO`), `invite_token_hash`,
+`invite_expires_at`, `created_by`, `created_at`, `updated_at`. Índices: `customer_id`; únicos em `auth0_sub` e
+`invite_token_hash` (aceitam vários NULL no PostgreSQL e no SQLite); único parcial `customer_id WHERE papel = 'DONO'`
+(**exatamente um DONO por empresa**); único parcial `(customer_id, email) WHERE status IN ('CONVIDADO','ATIVO')`.
+
+Permissões (`app/team/permissions.py`): `ver_financeiro`, `pagar`, `aprovar_pagamentos`, `pedir_credito`,
+`contratar_credito`, `gerenciar_estoque`, `gerenciar_equipe`, `usar_assistente`. Presets: DONO e ADMIN = todas;
+FINANCEIRO = ver_financeiro, pagar, aprovar_pagamentos, pedir_credito, usar_assistente; OPERADOR = ver_financeiro,
+pagar, gerenciar_estoque, usar_assistente; LEITURA = ver_financeiro. O DONO tem sempre todas (efetivas).
+
+**Quem é o DONO.** `customers.auth0_sub` é a fonte da verdade da posse; `company_members.auth0_sub` é a dos demais
+membros. Quem cria a empresa no `PUT /me/onboarding` vira DONO na mesma transação do customer. No startup, depois
+das migrações de schema, roda nos dois dialetos `INSERT ... SELECT ... WHERE NOT EXISTS ... ON CONFLICT DO NOTHING`
+criando o DONO (ATIVO, e-mail/nome do customer, `created_by = "migracao"`) para todo cliente PJ sem DONO, inclusive
+os semeados com `auth0_sub` nulo (o DONO nasce sem `sub`). É idempotente, barato a cada boot e seguro com réplicas
+concorrentes (o índice único do DONO + `ON CONFLICT`); uma falha só é logada.
+
+**Resolver** (`app/team/resolver.py`, usado por `GET /me` e por todas as rotas `/me`): o `sub` é o dono se bater com
+`customers.auth0_sub` (o DONO é criado se faltar e tem o `auth0_sub` sincronizado com o do customer, em transação
+curta que relê em caso de conflito); senão, membro ATIVO por `company_members.auth0_sub`. Membro SUSPENSO → 403
+`{"error":"MEMBRO_SUSPENSO"}`. Sem nada → `NAO_INICIADO` com `membro: null`.
+
+`GET /me`:
+```json
+{"customer_id": 12, "onboarding_status": "APROVADO", "empresa": {"razao_social": "...", "...": "..."},
+ "membro": {"id": 3, "nome": "Fulano", "email": "fulano@empresa.com", "papel": "OPERADOR",
+            "permissoes": ["ver_financeiro", "pagar", "gerenciar_estoque", "usar_assistente"],
+            "limite_pagamento": 1500.0, "status": "ATIVO"}}
+```
+`limite_pagamento` é número ou `null`; `nome` e `email` são extras em relação ao contrato (para a auditoria
+`created_by_nome` do Transactions).
+
+**Decisão:** `GET /me/onboarding` funciona para qualquer membro ATIVO (leitura da empresa). `PUT /me/onboarding`
+só para o DONO (ou para quem ainda não tem empresa, que vira o DONO); membro que não é DONO → 403
+`{"error":"SEM_PERMISSAO","permissao":"dono"}`.
 
 ## Templates de onboarding por segmento
 
