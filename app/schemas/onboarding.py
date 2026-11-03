@@ -102,3 +102,5 @@ class OnboardingOut(BaseModel):
     observacoes: str | None
     onboarding_status: str
     updated_at: datetime | None
+    review_comment: str | None = None
+    reviewed_at: datetime | None = None

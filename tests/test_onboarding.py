@@ -47,6 +47,7 @@ def test_get_onboarding_without_customer(client):
     assert client.get("/me/onboarding").json() == {
         "empresa": None, "segmento": None, "respostas": {}, "observacoes": None,
         "onboarding_status": "NAO_INICIADO", "updated_at": None,
+        "review_comment": None, "reviewed_at": None,
     }
 
 
