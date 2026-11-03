@@ -1,6 +1,7 @@
-# ERP Banking - Onboarding API
+# ErpIa - Onboarding API
 
-Serviço responsável pelo cadastro de clientes e anamnese financeira.
+Serviço do **ErpIa** responsável pelo cadastro de clientes, anamnese financeira e onboarding PJ do
+portal do cliente.
 Contexto do projeto, arquitetura e autenticação em [docs/](docs/README.md).
 
 ## Requisitos

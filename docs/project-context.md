@@ -1,4 +1,4 @@
-# Contexto do projeto — ERP Banking e Crédito
+# Contexto do projeto — ErpIa (ERP Banking e Crédito)
 
 Trabalho semestral de Projeto de Software (Insper, prof. Eduardo Santana), grupo de 6.
 Plataforma em microsserviços para digitalizar operações bancárias.

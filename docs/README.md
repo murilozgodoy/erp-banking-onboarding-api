@@ -4,7 +4,7 @@
 
 | Arquivo | Conteúdo |
 |---------|----------|
-| [project-context.md](project-context.md) | Visão geral do ERP Banking, serviços, etapas e decisões técnicas |
+| [project-context.md](project-context.md) | Visão geral do ErpIa, serviços, etapas e decisões técnicas |
 | [architecture.md](architecture.md) | Estrutura de pastas e responsabilidade de cada camada |
 | [auth.md](auth.md) | Auth0: validação do JWT, permissões por rota (RBAC) e token relay |
 | [observability-events.md](observability-events.md) | Métricas Prometheus, eventos RabbitMQ, Postgres por schema, `ROOT_PATH` e Docker |
