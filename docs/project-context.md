@@ -28,7 +28,7 @@ Dev/testes: SQLite; produção: `DATABASE_URL` (Postgres, driver `psycopg[binary
 ## Endpoints desta API
 
 `GET /health` · `GET /customers` · `POST /customers` · `GET /customers/{id}` ·
-`PUT /customers/{id}/anamnesis` (todos exceto `/health` exigem Bearer JWT e a permissão da rota).
+`PUT /customers/{id}/anamnesis` (todos exceto `/health` e `/metrics` exigem Bearer JWT e a permissão da rota).
 
 ## Decisões técnicas
 
@@ -42,3 +42,6 @@ Dev/testes: SQLite; produção: `DATABASE_URL` (Postgres, driver `psycopg[binary
   `services`, `routers`; sem `repositories`, o service usa a Session do ORM); criação de `docs/`; revisão da configuração de login.
 - 2026-10-21: autorização por permissões (RBAC) com 403 por rota; listagem e busca de clientes
   (`GET /customers`); portas padronizadas com a EC2 (Onboarding 8081, Score 8082, Transactions 8080).
+- 2026-11-03 (Etapa 4): `/metrics` (Prometheus), eventos `customer.created` e `customer.anamnesis_updated`
+  no RabbitMQ, Postgres por schema (`search_path`), `ROOT_PATH` para o gateway, Dockerfile não-root com
+  healthcheck e publicação da imagem no GHCR (ver [observability-events.md](observability-events.md)).

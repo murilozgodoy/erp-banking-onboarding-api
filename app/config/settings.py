@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     auth0_audience: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
     port: int = 8081
+    rabbitmq_url: str = ""
+    root_path: str = ""
 
 
 settings = Settings()

@@ -30,7 +30,29 @@ Docs interativas: http://localhost:8081/docs (exigem Bearer token, ver abaixo).
 pytest
 ```
 
-Cobertura mínima exigida: **80%** (falha o build se abaixo).
+Cobertura mínima exigida: **80%** (falha o build se abaixo). Os testes não precisam de RabbitMQ
+(o broker é mockado).
+
+## Docker
+
+```bash
+docker build -t onboarding-api .
+docker run --rm -p 8081:8081 --env-file .env onboarding-api
+```
+
+Imagem `python:3.13-slim`, usuário não-root, `HEALTHCHECK` em `/health` e porta via `PORT`.
+Em push na `main` o CI publica `ghcr.io/murilozgodoy/erp-banking-onboarding-api:latest` e `:<sha>`.
+
+## Métricas e eventos
+
+- `GET /metrics`: métricas HTTP padrão (`http_requests_total`, `http_request_duration_seconds`) e de
+  negócio (`customers_created_total`, `events_published_total{routing_key,result}`).
+- Publica `customer.created` (após `POST /customers`) e `customer.anamnesis_updated` (após
+  `PUT /customers/{id}/anamnesis`) na exchange topic `erp.events`. Falha no broker nunca quebra a requisição.
+
+Logs em JSON com `X-Request-ID` (gerado se ausente e devolvido na resposta).
+
+Detalhes, payloads e deploy em [docs/observability-events.md](docs/observability-events.md).
 
 ## Configuração
 
@@ -38,17 +60,20 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 
 | Variável         | Padrão                      | Descrição                                                                   |
 | ---------------- | --------------------------- | --------------------------------------------------------------------------- |
-| `DATABASE_URL`   | `sqlite:///./onboarding.db` | Em produção, PostgreSQL: `postgresql+psycopg://user:pass@host:5432/db`      |
+| `DATABASE_URL`   | `sqlite:///./onboarding.db` | Compose: `postgresql+psycopg://erp:erp@postgres:5432/erp?options=-csearch_path%3Donboarding` (tabelas no schema `onboarding`) |
 | `PORT`           | `8081`                      | Porta usada por `python -m app.main` (8081 é uma das portas abertas na EC2) |
 | `AUTH0_DOMAIN`   | —                           | Domínio do tenant, sem `https://` (ex.: `dev-slbrfj6dwk1pdeox.us.auth0.com`) |
 | `AUTH0_AUDIENCE` | —                           | Identifier da API no Auth0: `https://erp-banking-api`                       |
 | `CORS_ORIGINS`   | `["http://localhost:5173"]` | Origens do frontend, em JSON                                                |
+| `RABBITMQ_URL`   | vazio                       | Ex.: `amqp://erp:erp@rabbitmq:5672/`. Vazio = eventos desligados (no-op)     |
+| `ROOT_PATH`      | vazio                       | Prefixo do gateway (ex.: `/onboarding`) para o `/docs` funcionar atrás dele |
 
 ## Endpoints
 
 | Método | Rota                           | Permissão         | Descrição                                            |
 | ------ | ------------------------------ | ----------------- | ---------------------------------------------------- |
 | GET    | `/health`                      | pública           | Health check                                         |
+| GET    | `/metrics`                     | pública           | Métricas Prometheus (fora do OpenAPI)                |
 | GET    | `/customers?q=&limit=&offset=` | `read:customers`  | Lista clientes, com busca por nome ou CPF            |
 | POST   | `/customers`                   | `write:customers` | Cria cliente (endereço e perfil financeiro opcionais) |
 | GET    | `/customers/{id}`              | `read:customers`  | Consulta cliente (usado pelo Credit Score)           |

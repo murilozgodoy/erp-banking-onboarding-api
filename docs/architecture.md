@@ -7,7 +7,10 @@ app/
 │   ├── settings.py      # Settings (pydantic-settings, lê .env)
 │   └── database.py      # engine, SessionLocal, Base, get_db
 ├── core/
+│   ├── metrics.py       # /metrics (instrumentator) + contadores de negócio
 │   └── security.py      # require_auth (JWT Auth0, JWKS/RS256) e require_permission (RBAC, 403)
+├── events/
+│   └── publisher.py     # EventPublisher (aio-pika) + payloads customer.created / customer.anamnesis_updated
 ├── models/              # entidades SQLAlchemy (um arquivo por tabela)
 ├── schemas/             # DTOs Pydantic de entrada/saída
 ├── services/            # regras de negócio e acesso a dados via Session do ORM; exceções de domínio
@@ -19,7 +22,8 @@ docs/                    # contexto atualizado do projeto
 ## Fluxo de uma requisição
 
 `router` → `service` (regra de negócio + Session do SQLAlchemy) → `model`.
-Os `schemas` validam a entrada e serializam a saída no router.
+Os `schemas` validam a entrada e serializam a saída no router. Depois do commit, o router agenda
+o evento de domínio em `BackgroundTasks` (`app.state.publisher`, ver [observability-events.md](observability-events.md)).
 
 ## Convenções
 
