@@ -2,7 +2,7 @@
 
 `Base.metadata.create_all` cria tabelas novas (ex.: business_profiles) mas não altera tabelas
 existentes. Em PostgreSQL (produção já tem `customers`) aplicamos as colunas da Fase 2 com
-`ADD COLUMN IF NOT EXISTS`, tornamos o cpf opcional (clientes PJ não têm CPF) e criamos os
+`ADD COLUMN IF NOT EXISTS` (inclusive em `business_profiles`), tornamos o cpf opcional (clientes PJ não têm CPF) e criamos os
 índices únicos. Em SQLite (dev/testes) o create_all já cria o schema completo: no-op.
 """
 import logging
@@ -22,6 +22,10 @@ CUSTOMER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("onboarding_status", "VARCHAR(20)"),
 )
 
+BUSINESS_PROFILE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("submission_event_id", "VARCHAR(36)"),
+)
+
 UNIQUE_INDEXES: tuple[tuple[str, str], ...] = (
     ("ix_customers_auth0_sub", "auth0_sub"),
     ("ix_customers_cnpj", "cnpj"),
@@ -36,6 +40,10 @@ def migration_statements(dialect: str) -> list[str]:
         f"ALTER TABLE customers ADD COLUMN IF NOT EXISTS {name} {ddl}"
         for name, ddl in CUSTOMER_COLUMNS
     ]
+    statements.extend(
+        f"ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS {name} {ddl}"
+        for name, ddl in BUSINESS_PROFILE_COLUMNS
+    )
     statements.append("ALTER TABLE customers ALTER COLUMN cpf DROP NOT NULL")
     statements.extend(
         f"CREATE UNIQUE INDEX IF NOT EXISTS {index} ON customers ({column})"

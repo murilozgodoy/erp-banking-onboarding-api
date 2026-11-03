@@ -18,7 +18,7 @@ def test_sqlite_is_noop(engine):
 def test_postgres_statements_are_idempotent():
     statements = migration_statements("postgresql")
     adds = [s for s in statements if "ADD COLUMN" in s]
-    assert len(adds) == 7
+    assert len(adds) == 8
     assert all("ADD COLUMN IF NOT EXISTS" in s for s in adds)
     assert "ALTER TABLE customers ADD COLUMN IF NOT EXISTS tipo_pessoa VARCHAR(2) NOT NULL DEFAULT 'PF'" in statements
     assert "ALTER TABLE customers ALTER COLUMN cpf DROP NOT NULL" in statements

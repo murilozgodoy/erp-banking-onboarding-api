@@ -24,9 +24,9 @@ ONBOARDING_SUBMITTED = "customer.onboarding_submitted"
 ONBOARDING_REVIEWED = "customer.onboarding_reviewed"
 
 
-def _envelope(event_type: str, **payload: Any) -> dict[str, Any]:
+def _envelope(event_type: str, event_id: str | None = None, **payload: Any) -> dict[str, Any]:
     return {
-        "event_id": str(uuid.uuid4()),
+        "event_id": event_id or str(uuid.uuid4()),
         "event_type": event_type,
         "occurred_at": datetime.now(timezone.utc).isoformat(),
         **payload,
@@ -53,10 +53,12 @@ def anamnesis_updated_event(customer_id: int, anamnesis) -> dict[str, Any]:
 
 
 def onboarding_submitted_event(
-    customer, empresa: dict, respostas: dict, observacoes: str | None
+    customer, empresa: dict, respostas: dict, observacoes: str | None, event_id: str | None = None
 ) -> dict[str, Any]:
+    """`event_id` = business_profiles.submission_event_id (o Score o devolve como source_event_id)."""
     return _envelope(
         ONBOARDING_SUBMITTED,
+        event_id=event_id,
         customer_id=customer.id,
         auth0_sub=customer.auth0_sub,
         segmento=customer.segmento,
