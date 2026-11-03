@@ -123,8 +123,15 @@ def onboarding_view(customer: Customer | None) -> dict:
         return {
             "empresa": None, "segmento": None, "respostas": {}, "observacoes": None,
             "onboarding_status": NAO_INICIADO, "updated_at": None,
+            "review_comment": None, "reviewed_at": None,
         }
     profile = customer.business_profile
+    # comentário/data da revisão só aparecem após decisão manual (APROVADO/REPROVADO)
+    reviewed = (
+        profile is not None
+        and customer.onboarding_status in (APROVADO, REPROVADO)
+        and profile.reviewed_at is not None
+    )
     return {
         "empresa": empresa_dict(customer),
         "segmento": profile.segmento if profile else customer.segmento,
@@ -132,6 +139,8 @@ def onboarding_view(customer: Customer | None) -> dict:
         "observacoes": profile.observacoes if profile else None,
         "onboarding_status": customer.onboarding_status or NAO_INICIADO,
         "updated_at": profile.updated_at if profile else None,
+        "review_comment": profile.review_comment if reviewed else None,
+        "reviewed_at": profile.reviewed_at if reviewed else None,
     }
 
 

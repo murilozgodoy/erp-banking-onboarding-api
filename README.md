@@ -150,6 +150,7 @@ análise completa em Score `GET /scores/analyses/{customer_id}`. A decisão só 
 (409 em outro status, 404 sem onboarding), grava `reviewed_by` (= `sub` do analista), comentário e data,
 publica `customer.onboarding_reviewed` e responde
 `{customer_id, onboarding_status, decisao, comentario, reviewer, reviewed_at}`.
+`GET`/`PUT /me/onboarding` expõem `review_comment` e `reviewed_at` (null, exceto em `APROVADO`/`REPROVADO` após revisão manual).
 
 **Eventos da Fase 2** (exchange `erp.events`, mesmo envelope `event_id`, `event_type`, `occurred_at`):
 
