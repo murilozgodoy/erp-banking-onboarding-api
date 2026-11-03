@@ -24,20 +24,6 @@ def _count(routing_key, result):
     ) or 0.0
 
 
-@pytest.fixture()
-def broker(monkeypatch):
-    exchange = MagicMock()
-    exchange.publish = AsyncMock()
-    channel = MagicMock()
-    channel.declare_exchange = AsyncMock(return_value=exchange)
-    connection = MagicMock()
-    connection.channel = AsyncMock(return_value=channel)
-    connection.close = AsyncMock()
-    connect = AsyncMock(return_value=connection)
-    monkeypatch.setattr(publisher_module.aio_pika, "connect_robust", connect)
-    return SimpleNamespace(connect=connect, connection=connection, channel=channel, exchange=exchange)
-
-
 def test_customer_created_event_payload():
     customer = SimpleNamespace(id=7, nome="Ana", cpf="12345678900", email="ana@example.com")
     event = customer_created_event(customer)
