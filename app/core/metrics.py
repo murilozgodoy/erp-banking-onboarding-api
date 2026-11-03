@@ -42,6 +42,11 @@ ONBOARDING_MANUAL_QUEUE = Gauge(
     "Clientes com onboarding em ANALISE_MANUAL",
 )
 
+OUTBOX_PENDING = Gauge(
+    "outbox_pending",
+    "Eventos no outbox ainda não publicados (atualizado a cada ciclo do relay)",
+)
+
 EVENTS_CONSUMED = Counter(
     "events_consumed_total",
     "Eventos consumidos do RabbitMQ, por resultado do processamento",

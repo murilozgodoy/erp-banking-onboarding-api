@@ -13,6 +13,7 @@ from app.core.logging import RequestIDMiddleware, configure_logging
 from app.core.metrics import setup_metrics
 from app.core.security import require_auth
 from app.events import EventPublisher
+from app.events.outbox import OutboxRelay
 from app.messaging.consumer import BINDINGS, EventConsumer
 from app.routers import customers, health, me, reviews, templates
 from app.services.onboarding_service import refresh_manual_queue
@@ -39,9 +40,11 @@ async def lifespan(app: FastAPI):
     _init_manual_queue_gauge()
     await app.state.publisher.connect()
     app.state.consumer.start()
+    app.state.outbox_relay.start()
     try:
         yield
     finally:
+        await app.state.outbox_relay.stop()
         await app.state.consumer.stop()
         await app.state.publisher.close()
 
@@ -60,6 +63,7 @@ def create_app() -> FastAPI:
     )
     app.state.publisher = EventPublisher(settings.rabbitmq_url)
     app.state.consumer = EventConsumer(settings.rabbitmq_url, BINDINGS, SessionLocal)
+    app.state.outbox_relay = OutboxRelay(app.state.publisher, SessionLocal, settings.outbox_poll_seconds)
 
     app.include_router(health.router)
     setup_metrics(app)

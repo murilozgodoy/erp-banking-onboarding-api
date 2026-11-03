@@ -5,14 +5,14 @@ from sqlalchemy.orm import Session
 from app.config.database import get_db
 from app.core.metrics import ONBOARDING_DRAFTS, ONBOARDING_SUBMISSIONS
 from app.core.security import Principal, require_permission
-from app.events import ONBOARDING_SUBMITTED, EventPublisher, get_publisher, onboarding_submitted_event
+from app.events import EventPublisher, get_publisher
+from app.events.outbox import publish_pending, session_factory_for
 from app.schemas.me import MeOut
 from app.schemas.onboarding import OnboardingIn, OnboardingOut
 from app.services.onboarding_service import (
     OnboardingConflictError,
     OnboardingService,
     OnboardingValidationError,
-    empresa_dict,
     find_by_sub,
     me_view,
     onboarding_view,
@@ -53,8 +53,9 @@ def put_onboarding(
     publisher: EventPublisher = Depends(get_publisher),
 ):
     """Salva o rascunho (enviar=false) ou envia para análise (enviar=true)."""
+    service = OnboardingService(db)
     try:
-        customer = OnboardingService(db).save(principal.subject, payload)
+        customer = service.save(principal.subject, payload)
     except OnboardingConflictError as exc:
         raise HTTPException(409, str(exc))
     except OnboardingValidationError as exc:
@@ -63,14 +64,10 @@ def put_onboarding(
     view = onboarding_view(customer)
     if payload.enviar:
         ONBOARDING_SUBMISSIONS.labels(segmento=customer.segmento).inc()
-        background.add_task(
-            publisher.publish,
-            ONBOARDING_SUBMITTED,
-            onboarding_submitted_event(
-                customer, empresa_dict(customer), view["respostas"], view["observacoes"],
-                event_id=customer.business_profile.submission_event_id,
-            ),
-        )
+        # já está no outbox (mesmo commit); aqui é só o caminho rápido
+        sessions = session_factory_for(db)
+        for routing_key, event in service.events:
+            background.add_task(publish_pending, publisher, sessions, routing_key, event)
     else:
         ONBOARDING_DRAFTS.inc()
     return view

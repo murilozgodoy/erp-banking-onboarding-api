@@ -8,6 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.metrics import ONBOARDING_MANUAL_QUEUE
+from app.events.outbox import enqueue
+from app.events.publisher import ONBOARDING_SUBMITTED, onboarding_submitted_event
 from app.models import BusinessProfile, Customer
 from app.models.customer import TIPO_PJ
 from app.schemas.onboarding import OnboardingIn
@@ -163,6 +165,8 @@ def submission_errors(data: OnboardingIn) -> list[dict]:
 class OnboardingService:
     def __init__(self, db: Session):
         self.db = db
+        # (routing_key, payload) gravados no outbox no último save, para o publish rápido pós-commit
+        self.events: list[tuple[str, dict]] = []
 
     def save(self, sub: str, data: OnboardingIn) -> Customer:
         """Cria/atualiza o customer PJ do `sub` (substitui o estado salvo pelo corpo recebido).
@@ -226,9 +230,19 @@ class OnboardingService:
             profile.analise = None
             profile.reviewed_by = profile.review_comment = profile.reviewed_at = None
 
+        self.events = []
         try:
+            if data.enviar:
+                self.db.flush()  # customer.id para o evento
+                event = onboarding_submitted_event(
+                    customer, empresa_dict(customer), dict(profile.respostas or {}), profile.observacoes,
+                    event_id=profile.submission_event_id,
+                )
+                enqueue(self.db, ONBOARDING_SUBMITTED, event)  # mesma transação do EM_ANALISE
+                self.events.append((ONBOARDING_SUBMITTED, event))
             self.db.commit()
         except IntegrityError as exc:  # corrida com outro envio do mesmo sub/CNPJ
+            self.events = []
             self.db.rollback()
             raise OnboardingConflictError("Onboarding já cadastrado para este usuário ou CNPJ") from exc
         self.db.refresh(customer)

@@ -89,6 +89,8 @@ class EventPublisher:
         # Serializa connect/close: sem isso, publishes concorrentes após uma falha no startup
         # abririam várias conexões e algumas ficariam penduradas.
         self._lock = asyncio.Lock()
+        # Motivo da última falha de publish (lido pelo outbox logo após o `await`, sem troca de task)
+        self.last_error: str | None = None
 
     @property
     def enabled(self) -> bool:
@@ -126,10 +128,13 @@ class EventPublisher:
             except Exception:
                 logger.exception("Falha ao fechar conexão com o RabbitMQ")
 
-    async def publish(self, routing_key: str, payload: dict[str, Any]) -> None:
-        """Publish a JSON event. Never raises."""
+    async def publish(self, routing_key: str, payload: dict[str, Any]) -> bool:
+        """Publish a JSON event. Never raises; `False` = não publicou (motivo em `last_error`).
+
+        Mensageria desligada conta como publicado (`True`): não há broker para tentar de novo.
+        """
         if not self.enabled:
-            return
+            return True
         try:
             await self.connect()
             if self._exchange is None:
@@ -142,11 +147,13 @@ class EventPublisher:
                 type=payload.get("event_type"),
             )
             await self._exchange.publish(message, routing_key=routing_key)
-        except Exception:
+        except Exception as exc:
             logger.exception("Falha ao publicar evento %s", routing_key)
             EVENTS_PUBLISHED.labels(routing_key=routing_key, result="error").inc()
-            return
+            self.last_error = f"{type(exc).__name__}: {exc}"[:500]
+            return False
         EVENTS_PUBLISHED.labels(routing_key=routing_key, result="ok").inc()
+        return True
 
 
 def get_publisher(request: Request) -> EventPublisher:

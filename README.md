@@ -86,6 +86,7 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | `AUTH0_AUDIENCE` | —                           | Identifier da API no Auth0: `https://erp-banking-api`                       |
 | `CORS_ORIGINS`   | `["http://localhost:5173"]` | Origens do frontend, em JSON                                                |
 | `RABBITMQ_URL`   | vazio                       | Ex.: `amqp://erp:erp@rabbitmq:5672/`. Vazio = eventos desligados (no-op)     |
+| `OUTBOX_POLL_SECONDS` | `10`                   | Intervalo do relay do outbox (republica eventos pendentes). `<= 0` desliga   |
 | `ROOT_PATH`      | vazio                       | Prefixo do gateway (ex.: `/onboarding`) para o `/docs` funcionar atrás dele |
 
 ## Endpoints
@@ -167,6 +168,17 @@ O consumer roda em background no lifespan (desligado sem `RABBITMQ_URL`), é ide
 diferente dele (análise atrasada de uma submissão anterior ao reenvio), o resultado é `ignored`. Sem
 `source_event_id` (Score antigo) ou sem `submission_event_id` (envio anterior ao campo) aplica como antes. Ack no sucesso; erro inesperado volta para a fila
 uma vez (`nack(requeue=not redelivered)`).
+
+**Outbox transacional** (`outbox_events`: `id`, `event_id` único, `routing_key`, `payload` JSON, `created_at`,
+`published_at`, `attempts`, `last_error`). `customer.onboarding_submitted` e `customer.onboarding_reviewed` são
+gravados na **mesma transação** da mudança de status. Depois do commit o evento é publicado na hora
+(BackgroundTasks, caminho rápido) e marcado com `published_at`. Se o RabbitMQ estava fora ou o processo morreu
+antes do publish, o relay (task do lifespan, ligado só com `RABBITMQ_URL`) republica a cada `OUTBOX_POLL_SECONDS`
+(padrão 10) as linhas pendentes com mais de 5 s, em lotes de até 50 (`FOR UPDATE SKIP LOCKED` no PostgreSQL),
+incrementando `attempts` e guardando `last_error`; para no primeiro erro do lote. O `event_id` é o mesmo em toda
+republicação (consumidores deduplicam). Conexões do banco só nas consultas curtas, nunca durante o publish. O gauge
+`outbox_pending` mostra quantos eventos aguardam publicação. `customer.created` e `customer.anamnesis_updated`
+(API de clientes PF) continuam fora do outbox.
 
 **Métricas do onboarding** (séries zeradas no startup): `events_consumed_total{routing_key,result}`
 (`ok|duplicate|ignored|invalid|error`), `onboarding_reviews_total{decisao}` e o gauge
