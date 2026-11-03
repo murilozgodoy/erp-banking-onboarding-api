@@ -18,6 +18,19 @@ EVENTS_PUBLISHED = Counter(
     ["routing_key", "result"],
 )
 
+PUBLISHED_ROUTING_KEYS = ("customer.created", "customer.anamnesis_updated")
+PUBLISHED_RESULTS = ("ok", "error")
+
+
+def init_metrics() -> None:
+    """Cria as series rotuladas com valor 0 (evita "No data" no Grafana). Idempotente."""
+    for routing_key in PUBLISHED_ROUTING_KEYS:
+        for result in PUBLISHED_RESULTS:
+            EVENTS_PUBLISHED.labels(routing_key=routing_key, result=result)
+
+
+init_metrics()
+
 
 def setup_metrics(app: FastAPI) -> None:
     """Instrument HTTP requests and expose a public GET /metrics (no auth)."""
