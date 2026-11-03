@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
@@ -5,14 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
 from app import models  # noqa: F401
-from app.config.database import Base, engine
+from app.config.database import Base, SessionLocal, engine
 from app.config.migrations import run_migrations
 from app.config.settings import settings
 from app.core.logging import RequestIDMiddleware, configure_logging
 from app.core.metrics import setup_metrics
 from app.core.security import require_auth
 from app.events import EventPublisher
-from app.routers import customers, health, me, templates
+from app.messaging.consumer import BINDINGS, EventConsumer
+from app.routers import customers, health, me, reviews, templates
+from app.services.onboarding_service import refresh_manual_queue
+
+logger = logging.getLogger(__name__)
 
 
 def _openapi_url(request: Request) -> str:
@@ -20,12 +25,24 @@ def _openapi_url(request: Request) -> str:
     return request.scope.get("root_path", "").rstrip("/") + "/openapi.json"
 
 
+def _init_manual_queue_gauge() -> None:
+    """onboarding_manual_queue_size a partir do banco no startup; falha só é logada."""
+    try:
+        with SessionLocal() as db:
+            refresh_manual_queue(db)
+    except Exception:
+        logger.exception("Falha ao inicializar onboarding_manual_queue_size")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _init_manual_queue_gauge()
     await app.state.publisher.connect()
+    app.state.consumer.start()
     try:
         yield
     finally:
+        await app.state.consumer.stop()
         await app.state.publisher.close()
 
 
@@ -42,6 +59,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.publisher = EventPublisher(settings.rabbitmq_url)
+    app.state.consumer = EventConsumer(settings.rabbitmq_url, BINDINGS, SessionLocal)
 
     app.include_router(health.router)
     setup_metrics(app)
@@ -55,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(customers.router, dependencies=[Depends(require_auth)])
     app.include_router(me.router, dependencies=[Depends(require_auth)])
     app.include_router(templates.router, dependencies=[Depends(require_auth)])
+    app.include_router(reviews.router, dependencies=[Depends(require_auth)])
 
     @app.get("/openapi.json", dependencies=[Depends(require_auth)], include_in_schema=False)
     def openapi(request: Request):
