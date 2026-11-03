@@ -67,7 +67,8 @@ def put_onboarding(
             publisher.publish,
             ONBOARDING_SUBMITTED,
             onboarding_submitted_event(
-                customer, empresa_dict(customer), view["respostas"], view["observacoes"]
+                customer, empresa_dict(customer), view["respostas"], view["observacoes"],
+                event_id=customer.business_profile.submission_event_id,
             ),
         )
     else:

@@ -14,6 +14,8 @@ class BusinessProfile(Base):
     de `empresa` (cidade, estado, fundacao_ano, funcionarios) ficam aqui.
     `analise` guarda o resumo do evento business.analysis_completed
     (score, faixa_risco, gerado_por, status).
+    `submission_event_id` é o `event_id` do último customer.onboarding_submitted publicado: uma
+    análise cujo `source_event_id` não bate com ele é de uma submissão anterior e é ignorada.
     """
 
     __tablename__ = "business_profiles"
@@ -31,6 +33,7 @@ class BusinessProfile(Base):
     observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
     analise: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    submission_event_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

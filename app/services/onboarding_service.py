@@ -1,5 +1,6 @@
 """Regras do onboarding PJ (portal do cliente)."""
 import logging
+import uuid
 from datetime import datetime
 
 from sqlalchemy import func, or_, select, update
@@ -219,6 +220,8 @@ class OnboardingService:
         customer.onboarding_status = new_status
         if data.enviar:
             profile.submitted_at = datetime.utcnow()
+            # event_id do customer.onboarding_submitted desta submissão (análises de outra são ignoradas)
+            profile.submission_event_id = str(uuid.uuid4())
             # reenvio após REPROVADO: a análise e a revisão anteriores deixam de valer
             profile.analise = None
             profile.reviewed_by = profile.review_comment = profile.reviewed_at = None

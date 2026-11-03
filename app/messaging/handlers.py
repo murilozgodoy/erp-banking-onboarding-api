@@ -26,13 +26,23 @@ class AnalysisCompletedEvent(BaseModel):
     score: float | None = None
     faixa_risco: str | None = None
     gerado_por: str | None = None
+    # event_id do customer.onboarding_submitted que gerou a análise (ausente em Score antigo)
+    source_event_id: str | None = None
+
+
+def _is_stale(profile: BusinessProfile | None, source_event_id: str | None) -> bool:
+    current = profile.submission_event_id if profile is not None else None
+    return bool(source_event_id and current and source_event_id != current)
 
 
 def handle_analysis_completed(db: Session, payload: dict) -> str:
     """Move EM_ANALISE → APROVADO|ANALISE_MANUAL e guarda o resumo da análise.
 
-    Idempotente por `event_id` (tabela processed_events). Customer inexistente ou fora de
-    EM_ANALISE → `ignored` (o evento também é registrado, para não ser reprocessado).
+    Idempotente por `event_id` (tabela processed_events). Customer inexistente, fora de
+    EM_ANALISE ou análise de outra submissão (`source_event_id` diferente do
+    `submission_event_id` gravado) → `ignored` (o evento também é registrado, para não ser
+    reprocessado). Sem `source_event_id` (Score antigo) ou sem `submission_event_id` (envio
+    anterior a este campo) não há com o que comparar: aplica como antes.
     """
     try:
         event = AnalysisCompletedEvent.model_validate(payload)
@@ -49,6 +59,13 @@ def handle_analysis_completed(db: Session, payload: dict) -> str:
             "%s ignorado: customer %s com status %s",
             ANALYSIS_COMPLETED, event.customer_id,
             customer.onboarding_status if customer else None,
+        )
+        result = RESULT_IGNORED
+    elif _is_stale(customer.business_profile, event.source_event_id):
+        logger.info(
+            "%s ignorado: customer %s, análise da submissão %s (atual: %s)",
+            ANALYSIS_COMPLETED, event.customer_id, event.source_event_id,
+            customer.business_profile.submission_event_id,
         )
         result = RESULT_IGNORED
     else:

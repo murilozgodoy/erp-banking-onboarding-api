@@ -115,7 +115,7 @@ Armazenamento de `empresa`: `razao_social`, `nome_fantasia`, `cnpj`, `email` e `
 ficam em `business_profiles`, junto com `segmento`, `respostas`, `observacoes`, `analise` e os dados de revisão.
 
 Migração: `create_all` não altera tabelas existentes, então `app/config/migrations.py` roda no startup e, só em
-PostgreSQL, aplica `ADD COLUMN IF NOT EXISTS` das colunas novas, `cpf DROP NOT NULL` e os índices únicos de
+PostgreSQL, aplica `ADD COLUMN IF NOT EXISTS` das colunas novas (`customers` e `business_profiles.submission_event_id`), `cpf DROP NOT NULL` e os índices únicos de
 `auth0_sub`/`cnpj` (idempotente; no-op em SQLite).
 
 **Onboarding PJ (`/me/onboarding`).** `GET` responde `{empresa, segmento, respostas, observacoes,
@@ -158,11 +158,14 @@ publica `customer.onboarding_reviewed` e responde
 | --- | --- | --- |
 | `customer.onboarding_submitted` | publica (envio do onboarding) | `customer_id, auth0_sub, segmento, empresa, respostas, observacoes` |
 | `customer.onboarding_reviewed` | publica (decisão do analista) | `customer_id, decisao, comentario, reviewer` |
-| `business.analysis_completed` | consome na fila durável `onboarding.analysis-completed` | `customer_id, status (APROVADO\|ANALISE_MANUAL), score, faixa_risco, gerado_por` |
+| `business.analysis_completed` | consome na fila durável `onboarding.analysis-completed` | `customer_id, status (APROVADO\|ANALISE_MANUAL), score, faixa_risco, gerado_por, source_event_id?` |
 
 O consumer roda em background no lifespan (desligado sem `RABBITMQ_URL`), é idempotente por `event_id`
 (tabela `processed_events`), só muda `EM_ANALISE` → `APROVADO`/`ANALISE_MANUAL` (fora disso o resultado é
-`ignored`) e guarda o resumo em `business_profiles.analise`. Ack no sucesso; erro inesperado volta para a fila
+`ignored`) e guarda o resumo em `business_profiles.analise`. Cada envio grava o `event_id` do
+`customer.onboarding_submitted` em `business_profiles.submission_event_id`; se a análise traz `source_event_id`
+diferente dele (análise atrasada de uma submissão anterior ao reenvio), o resultado é `ignored`. Sem
+`source_event_id` (Score antigo) ou sem `submission_event_id` (envio anterior ao campo) aplica como antes. Ack no sucesso; erro inesperado volta para a fila
 uma vez (`nack(requeue=not redelivered)`).
 
 **Métricas do onboarding** (séries zeradas no startup): `events_consumed_total{routing_key,result}`
