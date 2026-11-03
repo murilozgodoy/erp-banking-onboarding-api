@@ -19,7 +19,7 @@ class CustomerService:
 
     def create(self, data: CustomerCreate) -> Customer:
         if self.db.scalar(select(Customer).where(Customer.cpf == data.cpf)):
-            raise CustomerAlreadyExistsError(f"CPF {data.cpf} já cadastrado")
+            raise CustomerAlreadyExistsError(f"CPF final {data.cpf[-4:]} já cadastrado")
 
         customer = Customer(
             nome=data.nome,

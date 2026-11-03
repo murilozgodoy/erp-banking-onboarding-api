@@ -5,6 +5,7 @@ The id is echoed in the response header and attached to every log line of the re
 """
 import json
 import logging
+import re
 import time
 import uuid
 from contextvars import ContextVar
@@ -14,6 +15,15 @@ REQUEST_ID_HEADER = "X-Request-ID"
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 access_logger = logging.getLogger("app.access")
+
+# token do convite viaja no path (POST /me/team/invites/{token}/accept): nunca vai para o log
+_INVITE_TOKEN_IN_PATH = re.compile(r"(/invites/)[^/]+(/accept)")
+
+
+def safe_path(path: str | None) -> str | None:
+    """Path para o access log, sem segredos (o token do convite vira `***`)."""
+    return _INVITE_TOKEN_IN_PATH.sub(r"\1***\2", path) if path else path
+
 
 _RESERVED = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 
@@ -46,7 +56,11 @@ def configure_logging(level: str = "INFO") -> None:
 
 
 class RequestIDMiddleware:
-    """Pure ASGI middleware: reads/generates X-Request-ID, echoes it, logs one JSON line per request."""
+    """Pure ASGI middleware: reads/generates X-Request-ID, echoes it, logs one JSON line per request.
+
+    A linha de acesso tem só método, path (sem o token do convite), status e duração: nunca headers
+    (Authorization), query string nem corpo.
+    """
 
     def __init__(self, app) -> None:
         self.app = app
@@ -80,7 +94,7 @@ class RequestIDMiddleware:
                 "request",
                 extra={
                     "method": scope.get("method"),
-                    "path": scope.get("path"),
+                    "path": safe_path(scope.get("path")),
                     "status": status,
                     "duration_ms": round((time.perf_counter() - start) * 1000, 2),
                 },

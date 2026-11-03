@@ -47,7 +47,10 @@ def handle_analysis_completed(db: Session, payload: dict) -> str:
     try:
         event = AnalysisCompletedEvent.model_validate(payload)
     except ValidationError as exc:
-        logger.warning("evento %s inválido: %s", ANALYSIS_COMPLETED, exc.errors())
+        # sem include_input: o valor recebido não vai para o log
+        logger.warning(
+            "evento %s inválido: %s", ANALYSIS_COMPLETED, exc.errors(include_input=False, include_url=False)
+        )
         return RESULT_INVALID
 
     if db.get(ProcessedEvent, event.event_id) is not None:
