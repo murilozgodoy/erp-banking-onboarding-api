@@ -98,6 +98,28 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | GET    | `/customers/{id}`              | `read:customers`  | Consulta cliente (usado pelo Credit Score)           |
 | PUT    | `/customers/{id}/anamnesis`    | `write:customers` | Cria/atualiza a anamnese                             |
 
+## Templates de onboarding por segmento
+
+`GET /onboarding/templates` (qualquer usuário autenticado) devolve os templates do onboarding de empresas, e
+`GET /onboarding/templates/{segmento}` devolve um só (404 se não existir). São dados versionados no código, em
+`app/templates/data.py`, no formato `{segmento, versao, nome, descricao, icone, secoes: [{id, titulo, campos:
+[{id, label, tipo, obrigatorio, opcoes?, ajuda?, min?, max?}]}]}`. Segmentos: `varejo`, `alimentacao`,
+`servicos`, `saude`, `tecnologia`, `industria`, `agro`, `construcao` e `outro`.
+
+- Todo template tem 3 seções (`vendas`, `operacao`, `financeiro`) e de 8 a 14 campos. Os campos comuns têm o
+  mesmo id em todos os segmentos (`faturamento_mensal`, `margem_bruta_pct`, `sazonalidade`,
+  `prazo_medio_recebimento_dias`, `prazo_medio_pagamento_dias`, `folha_mensal`, `possui_estoque`,
+  `valor_estoque`, `dividas_total`, `parcela_dividas_mensal`), porque o Credit Score e o Transactions leem
+  essas chaves. `ticket_medio` e `pct_cartao_credito` também mantêm o id onde aparecem.
+- `validate_respostas(segmento, respostas)` devolve `[{"campo", "erro"}]` (vazio quando válido): obrigatórios,
+  tipos (`currency|number` ≥ 0, `percent` de 0 a 100, `integer`, `boolean`, `select`, `multiselect`, `text` com
+  até `max` caracteres, padrão 1000), `min`/`max` e `valor_estoque` obrigatório quando `possui_estoque` é
+  verdadeiro. Chaves desconhecidas são ignoradas.
+
+**Novo segmento:** adicione um `_template(...)` em `TEMPLATES` (`app/templates/data.py`) com os campos
+específicos em `vendas`/`operacao`, use um ícone do [lucide](https://lucide.dev/icons), atualize `VERSAO` e
+rode os testes (`tests/test_templates.py` verifica a estrutura de todos os segmentos). Avise o Score e o front.
+
 ## Autenticação e autorização (Auth0)
 
 Envie o **access token** do Auth0 em `Authorization: Bearer <token>`. A API valida a
