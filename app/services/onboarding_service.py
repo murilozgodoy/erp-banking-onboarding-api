@@ -1,10 +1,11 @@
 """Regras do onboarding PJ (portal do cliente)."""
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.metrics import ONBOARDING_MANUAL_QUEUE
 from app.models import BusinessProfile, Customer
 from app.models.customer import TIPO_PJ
 from app.schemas.onboarding import OnboardingIn
@@ -35,6 +36,15 @@ class OnboardingValidationError(Exception):
     def __init__(self, campos: list[dict]):
         super().__init__("Onboarding incompleto ou inválido")
         self.campos = campos
+
+
+def refresh_manual_queue(db: Session) -> int:
+    """Atualiza o gauge onboarding_manual_queue_size com a contagem de ANALISE_MANUAL."""
+    size = db.scalar(
+        select(func.count()).select_from(Customer).where(Customer.onboarding_status == ANALISE_MANUAL)
+    ) or 0
+    ONBOARDING_MANUAL_QUEUE.set(size)
+    return size
 
 
 def _blank_to_none(value):
@@ -175,4 +185,5 @@ class OnboardingService:
             self.db.rollback()
             raise OnboardingConflictError("Onboarding já cadastrado para este usuário ou CNPJ") from exc
         self.db.refresh(customer)
+        refresh_manual_queue(self.db)
         return customer

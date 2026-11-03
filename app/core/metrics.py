@@ -4,7 +4,7 @@ Counters live at module level so they are registered once, even when the app is
 created several times (tests).
 """
 from fastapi import FastAPI
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.templates import SEGMENTOS
@@ -31,12 +31,35 @@ ONBOARDING_DRAFTS = Counter(
     "Rascunhos de onboarding PJ salvos (PUT /me/onboarding com enviar=false)",
 )
 
+ONBOARDING_REVIEWS = Counter(
+    "onboarding_reviews_total",
+    "Decisões manuais de onboarding (POST /onboarding/reviews/{id}/decision)",
+    ["decisao"],
+)
+
+ONBOARDING_MANUAL_QUEUE = Gauge(
+    "onboarding_manual_queue_size",
+    "Clientes com onboarding em ANALISE_MANUAL",
+)
+
+EVENTS_CONSUMED = Counter(
+    "events_consumed_total",
+    "Eventos consumidos do RabbitMQ, por resultado do processamento",
+    ["routing_key", "result"],
+)
+
 PUBLISHED_ROUTING_KEYS = (
     "customer.created",
     "customer.anamnesis_updated",
     "customer.onboarding_submitted",
+    "customer.onboarding_reviewed",
 )
 PUBLISHED_RESULTS = ("ok", "error")
+
+CONSUMED_ROUTING_KEYS = ("business.analysis_completed",)
+CONSUMED_RESULTS = ("ok", "duplicate", "ignored", "invalid", "error")
+
+REVIEW_DECISOES = ("APROVADO", "REPROVADO")
 
 
 def init_metrics() -> None:
@@ -46,6 +69,11 @@ def init_metrics() -> None:
             EVENTS_PUBLISHED.labels(routing_key=routing_key, result=result)
     for segmento in SEGMENTOS:
         ONBOARDING_SUBMISSIONS.labels(segmento=segmento)
+    for routing_key in CONSUMED_ROUTING_KEYS:
+        for result in CONSUMED_RESULTS:
+            EVENTS_CONSUMED.labels(routing_key=routing_key, result=result)
+    for decisao in REVIEW_DECISOES:
+        ONBOARDING_REVIEWS.labels(decisao=decisao)
 
 
 init_metrics()
