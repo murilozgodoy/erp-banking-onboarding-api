@@ -180,7 +180,7 @@ class OnboardingService:
         if empresa.cnpj is not None:
             owner = self.db.scalar(select(Customer.id).where(Customer.cnpj == empresa.cnpj))
             if owner is not None and (customer is None or owner != customer.id):
-                raise OnboardingConflictError(f"CNPJ {empresa.cnpj} já cadastrado")
+                raise OnboardingConflictError(f"CNPJ final {empresa.cnpj[-4:]} já cadastrado")
         if data.enviar:
             erros = submission_errors(data)
             if erros:

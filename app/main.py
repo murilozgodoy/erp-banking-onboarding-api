@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
@@ -9,7 +10,7 @@ from app import models  # noqa: F401
 from app.config.database import Base, SessionLocal, engine
 from app.config.migrations import run_migrations
 from app.config.settings import settings
-from app.core.errors import ApiError, api_error_handler
+from app.core.errors import ApiError, api_error_handler, validation_error_handler
 from app.core.logging import RequestIDMiddleware, configure_logging
 from app.core.metrics import setup_metrics
 from app.core.security import require_auth
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.add_exception_handler(ApiError, api_error_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.state.publisher = EventPublisher(settings.rabbitmq_url)
     app.state.consumer = EventConsumer(settings.rabbitmq_url, BINDINGS, SessionLocal)
     app.state.outbox_relay = OutboxRelay(app.state.publisher, SessionLocal, settings.outbox_poll_seconds)
