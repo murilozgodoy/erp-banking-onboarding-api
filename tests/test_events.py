@@ -176,3 +176,29 @@ def test_api_request_succeeds_when_broker_is_down(client, sample_customer_payloa
     finally:
         client.app.state.publisher = original
     assert _count("customer.created", "error") == before + 1
+
+
+def test_concurrent_publishes_open_a_single_connection(broker):
+    """Após falha no startup, publishes concorrentes não podem abrir várias conexões."""
+    real_connection = broker.connection
+
+    async def slow_connect(url):
+        await asyncio.sleep(0.01)  # força a concorrência durante o connect
+        return real_connection
+
+    broker.connect.side_effect = slow_connect
+
+    async def scenario():
+        pub = EventPublisher("amqp://guest:guest@localhost/")
+        await asyncio.gather(
+            *(pub.publish("customer.created", {"event_id": str(i)}) for i in range(5))
+        )
+        await pub.close()
+        await pub.close()  # idempotente
+        return pub
+
+    pub = asyncio.run(scenario())
+    assert broker.connect.await_count == 1
+    assert broker.exchange.publish.await_count == 5
+    real_connection.close.assert_awaited_once()
+    assert pub._connection is None and pub._exchange is None
