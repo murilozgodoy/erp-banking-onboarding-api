@@ -8,7 +8,9 @@ from app.config.database import Base, get_db
 from app.main import app
 from app.core.security import Principal, require_auth
 
-ALL_PERMISSIONS = frozenset({"read:customers", "write:customers"})
+ALL_PERMISSIONS = frozenset({
+    "read:customers", "write:customers", "read:self", "write:self", "review:onboarding",
+})
 
 
 @pytest.fixture()

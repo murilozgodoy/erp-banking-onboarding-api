@@ -6,12 +6,13 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
 from app import models  # noqa: F401
 from app.config.database import Base, engine
+from app.config.migrations import run_migrations
 from app.config.settings import settings
 from app.core.logging import RequestIDMiddleware, configure_logging
 from app.core.metrics import setup_metrics
 from app.core.security import require_auth
 from app.events import EventPublisher
-from app.routers import customers, health
+from app.routers import customers, health, me
 
 
 def _openapi_url(request: Request) -> str:
@@ -31,11 +32,12 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     configure_logging(settings.log_level)
     Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
 
     app = FastAPI(
-        title="ERP Banking - Onboarding API",
+        title="ErpIa - Onboarding API",
         version="1.0.0", docs_url=None, redoc_url=None, openapi_url=None,
-        description="Cadastro de clientes e anamnese financeira",
+        description="ErpIa: cadastro de clientes, anamnese financeira e onboarding PJ do portal",
         root_path=settings.root_path,
         lifespan=lifespan,
     )
@@ -51,6 +53,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestIDMiddleware)  # mais externo: cobre CORS, auth e erros
     app.include_router(customers.router, dependencies=[Depends(require_auth)])
+    app.include_router(me.router, dependencies=[Depends(require_auth)])
 
     @app.get("/openapi.json", dependencies=[Depends(require_auth)], include_in_schema=False)
     def openapi(request: Request):
