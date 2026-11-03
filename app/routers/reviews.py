@@ -12,7 +12,12 @@ from app.core.security import Principal, require_permission
 from app.events import ONBOARDING_REVIEWED, EventPublisher, get_publisher, onboarding_reviewed_event
 from app.models import BusinessProfile, Customer
 from app.schemas.me import EmpresaOut
-from app.services.onboarding_service import ANALISE_MANUAL, empresa_dict, refresh_manual_queue
+from app.services.onboarding_service import (
+    ANALISE_MANUAL,
+    claim_status,
+    empresa_dict,
+    refresh_manual_queue,
+)
 
 router = APIRouter(prefix="/onboarding/reviews", tags=["onboarding-review"])
 
@@ -82,9 +87,14 @@ def decide(
     customer = db.get(Customer, customer_id)
     if customer is None or customer.business_profile is None:
         raise HTTPException(404, f"Onboarding do cliente {customer_id} não encontrado")
-    if customer.onboarding_status != ANALISE_MANUAL:
+    # compare-and-set: dois analistas decidindo ao mesmo tempo → só o primeiro vence
+    if customer.onboarding_status != ANALISE_MANUAL or not claim_status(
+        db, customer_id, (ANALISE_MANUAL,), payload.decisao
+    ):
+        db.rollback()
+        current = db.get(Customer, customer_id).onboarding_status
         raise HTTPException(
-            409, f"Decisão só é permitida em {ANALISE_MANUAL} (status atual: {customer.onboarding_status})"
+            409, f"Decisão só é permitida em {ANALISE_MANUAL} (status atual: {current})"
         )
     profile = customer.business_profile
     customer.onboarding_status = payload.decisao

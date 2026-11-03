@@ -6,7 +6,12 @@ TEXT_MAX_LENGTH = 1000  # limite padrão de campos text sem `max`
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # int grande demais para float (ex.: 10**400)
+        return False
 
 
 def _is_empty(value: Any) -> bool:
@@ -31,7 +36,7 @@ def _check_type(campo: dict, value: Any) -> str | None:
         if tipo == "percent" and value > 100:
             return "Informe um percentual entre 0 e 100."
     elif tipo == "integer":
-        if not isinstance(value, int) or isinstance(value, bool):
+        if not isinstance(value, int) or not _is_number(value):
             return "Informe um número inteiro."
     elif tipo == "boolean":
         if not isinstance(value, bool):

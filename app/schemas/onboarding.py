@@ -11,6 +11,8 @@ UFS = frozenset(
 
 _CNPJ_W1 = (5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2)
 _CNPJ_W2 = (6, *_CNPJ_W1)
+_DIGITS = "0123456789"
+_CNPJ_CHARS = frozenset(_DIGITS + "./- ")
 
 
 def _cnpj_digit(digits: str, weights: tuple[int, ...]) -> int:
@@ -20,7 +22,10 @@ def _cnpj_digit(digits: str, weights: tuple[int, ...]) -> int:
 
 def normalize_cnpj(value: str) -> str:
     """Remove a máscara e valida os dígitos verificadores; ValueError se inválido."""
-    digits = "".join(ch for ch in value if ch.isdigit())
+    # só dígitos ASCII e a máscara: str.isdigit() aceitaria "１" (full-width) e burlaria o índice único
+    if any(ch not in _CNPJ_CHARS for ch in value):
+        raise ValueError("CNPJ deve conter apenas dígitos e a máscara (. / -)")
+    digits = "".join(ch for ch in value if ch in _DIGITS)
     if len(digits) != 14 or len(set(digits)) == 1:
         raise ValueError("CNPJ deve ter 14 dígitos")
     if (
@@ -42,7 +47,7 @@ class EmpresaIn(BaseModel):
     cidade: str | None = Field(default=None, max_length=80)
     estado: str | None = None
     fundacao_ano: int | None = Field(default=None, ge=1800, le=2100)
-    funcionarios: int | None = Field(default=None, ge=0)
+    funcionarios: int | None = Field(default=None, ge=0, le=2_147_483_647)  # INTEGER no banco
 
     @field_validator("*", mode="before")
     @classmethod
