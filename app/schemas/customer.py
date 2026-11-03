@@ -21,10 +21,16 @@ class CustomerOut(BaseModel):
 
     id: int
     nome: str
-    cpf: str
+    cpf: str | None = None
     email: str
     telefone: str
     created_at: datetime
+    tipo_pessoa: str = "PF"
+    cnpj: str | None = None
+    razao_social: str | None = None
+    nome_fantasia: str | None = None
+    segmento: str | None = None
+    onboarding_status: str | None = None
     address: AddressOut | None = None
     financial_profile: FinancialProfileOut | None = None
     anamnesis: AnamnesisOut | None = None
