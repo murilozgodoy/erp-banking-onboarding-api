@@ -13,10 +13,9 @@ from app.services.onboarding_service import (
     OnboardingConflictError,
     OnboardingService,
     OnboardingValidationError,
-    find_by_sub,
-    me_view,
     onboarding_view,
 )
+from app.team.resolver import me_view, require_owner, resolve
 
 router = APIRouter(prefix="/me", tags=["portal"])
 
@@ -26,7 +25,11 @@ def get_me(
     principal: Principal = Depends(require_permission("read:self")),
     db: Session = Depends(get_db),
 ):
-    """Customer vinculado ao `sub` do token (usado também por Score e Transactions via token relay)."""
+    """Empresa e membro do `sub` do token (usado também por Score e Transactions via token relay).
+
+    O `sub` pode ser do dono (`customers.auth0_sub`) ou de um membro ATIVO da equipe; membro suspenso → 403
+    `{"error":"MEMBRO_SUSPENSO"}`.
+    """
     return me_view(db, principal.subject)
 
 
@@ -35,14 +38,15 @@ def get_onboarding(
     principal: Principal = Depends(require_permission("read:self")),
     db: Session = Depends(get_db),
 ):
-    """Rascunho ou envio atual do onboarding PJ do usuário."""
-    return onboarding_view(find_by_sub(db, principal.subject))
+    """Rascunho ou envio atual do onboarding PJ da empresa do usuário (dono ou membro, leitura)."""
+    return onboarding_view(resolve(db, principal.subject).customer)
 
 
 @router.put(
     "/onboarding",
     response_model=OnboardingOut,
-    responses={409: {"description": "Status não editável ou CNPJ de outro cliente"},
+    responses={403: {"description": 'Membro que não é DONO: {"error":"SEM_PERMISSAO","permissao":"dono"}'},
+               409: {"description": "Status não editável ou CNPJ de outro cliente"},
                422: {"description": "Envio incompleto: {detail, campos: [{campo, erro}]}"}},
 )
 def put_onboarding(
@@ -52,10 +56,13 @@ def put_onboarding(
     db: Session = Depends(get_db),
     publisher: EventPublisher = Depends(get_publisher),
 ):
-    """Salva o rascunho (enviar=false) ou envia para análise (enviar=true)."""
+    """Salva o rascunho (enviar=false) ou envia para análise (enviar=true). Só o DONO (ou quem ainda não tem
+    empresa, que vira o DONO) pode alterar."""
+    membership = resolve(db, principal.subject)
+    require_owner(membership)
     service = OnboardingService(db)
     try:
-        customer = service.save(principal.subject, payload)
+        customer = service.save(principal.subject, payload, customer=membership.customer)
     except OnboardingConflictError as exc:
         raise HTTPException(409, str(exc))
     except OnboardingValidationError as exc:

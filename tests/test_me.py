@@ -12,7 +12,9 @@ def _as(permissions, subject="auth0|test"):
 def test_me_without_customer(client):
     response = client.get("/me")
     assert response.status_code == 200
-    assert response.json() == {"customer_id": None, "onboarding_status": "NAO_INICIADO", "empresa": None}
+    assert response.json() == {
+        "customer_id": None, "onboarding_status": "NAO_INICIADO", "empresa": None, "membro": None,
+    }
 
 
 def test_me_requires_read_self(client):
@@ -44,6 +46,14 @@ def test_me_with_pj_customer(client, db_session):
             "razao_social": "Padaria Boa LTDA", "nome_fantasia": "Padaria Boa",
             "cnpj": "11222333000181", "email": "contato@padaria.com", "telefone": "11988887777",
             "cidade": "São Paulo", "estado": "SP", "fundacao_ano": 2015, "funcionarios": 12,
+        },
+        "membro": {
+            "id": body["membro"]["id"], "nome": "Padaria Boa LTDA", "email": "contato@padaria.com",
+            "papel": "DONO", "permissoes": [
+                "ver_financeiro", "pagar", "aprovar_pagamentos", "pedir_credito", "contratar_credito",
+                "gerenciar_estoque", "gerenciar_equipe", "usar_assistente",
+            ],
+            "limite_pagamento": None, "status": "ATIVO",
         },
     }
 
