@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
@@ -22,9 +22,19 @@ from app.services.onboarding_service import refresh_manual_queue
 logger = logging.getLogger(__name__)
 
 
-def _openapi_url(request: Request) -> str:
-    """openapi.json URL including the gateway prefix (ROOT_PATH), e.g. /onboarding/openapi.json."""
-    return request.scope.get("root_path", "").rstrip("/") + "/openapi.json"
+def _prefix() -> str:
+    """Prefixo do gateway (ROOT_PATH), usado SÓ no OpenAPI/Swagger.
+
+    Não vai para FastAPI(root_path=...): o Starlette remove o root_path do início do caminho ao rotear,
+    e as rotas /onboarding/templates e /onboarding/reviews começam com o mesmo texto que o prefixo
+    /onboarding, então davam 404 dentro do container.
+    """
+    return settings.root_path.rstrip("/")
+
+
+def _openapi_url() -> str:
+    """openapi.json com o prefixo do gateway, ex.: /onboarding/openapi.json."""
+    return _prefix() + "/openapi.json"
 
 
 def _init_manual_queue_gauge() -> None:
@@ -59,7 +69,6 @@ def create_app() -> FastAPI:
         title="ErpIa - Onboarding API",
         version="1.0.0", docs_url=None, redoc_url=None, openapi_url=None,
         description="ErpIa: cadastro de clientes, anamnese financeira e onboarding PJ do portal",
-        root_path=settings.root_path,
         lifespan=lifespan,
     )
     app.add_exception_handler(ApiError, api_error_handler)
@@ -82,20 +91,19 @@ def create_app() -> FastAPI:
     app.include_router(reviews.router, dependencies=[Depends(require_auth)])
 
     @app.get("/openapi.json", dependencies=[Depends(require_auth)], include_in_schema=False)
-    def openapi(request: Request):
+    def openapi():
         schema = dict(app.openapi())
-        root_path = request.scope.get("root_path", "").rstrip("/")
-        if root_path:
-            schema["servers"] = [{"url": root_path}]
+        if _prefix():
+            schema["servers"] = [{"url": _prefix()}]
         return schema
 
     @app.get("/docs", dependencies=[Depends(require_auth)], include_in_schema=False)
-    def docs(request: Request):
-        return get_swagger_ui_html(openapi_url=_openapi_url(request), title=app.title)
+    def docs():
+        return get_swagger_ui_html(openapi_url=_openapi_url(), title=app.title)
 
     @app.get("/redoc", dependencies=[Depends(require_auth)], include_in_schema=False)
-    def redoc(request: Request):
-        return get_redoc_html(openapi_url=_openapi_url(request), title=app.title)
+    def redoc():
+        return get_redoc_html(openapi_url=_openapi_url(), title=app.title)
 
     return app
 
