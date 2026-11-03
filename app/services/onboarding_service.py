@@ -1,7 +1,8 @@
 """Regras do onboarding PJ (portal do cliente)."""
+import logging
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -10,6 +11,8 @@ from app.models import BusinessProfile, Customer
 from app.models.customer import TIPO_PJ
 from app.schemas.onboarding import OnboardingIn
 from app.templates import validate_respostas
+
+logger = logging.getLogger(__name__)
 
 NAO_INICIADO = "NAO_INICIADO"
 RASCUNHO = "RASCUNHO"
@@ -28,6 +31,9 @@ EDITABLE_STATUSES = (None, RASCUNHO, REPROVADO)
 EMPRESA_OBRIGATORIOS = ("razao_social", "cnpj", "email", "telefone", "cidade", "estado")
 
 
+NOME_MAX = Customer.__table__.c.nome.type.length  # razao_social aceita 160; nome é VARCHAR(120)
+
+
 class OnboardingConflictError(Exception):
     pass
 
@@ -38,13 +44,39 @@ class OnboardingValidationError(Exception):
         self.campos = campos
 
 
-def refresh_manual_queue(db: Session) -> int:
-    """Atualiza o gauge onboarding_manual_queue_size com a contagem de ANALISE_MANUAL."""
-    size = db.scalar(
-        select(func.count()).select_from(Customer).where(Customer.onboarding_status == ANALISE_MANUAL)
-    ) or 0
-    ONBOARDING_MANUAL_QUEUE.set(size)
+def refresh_manual_queue(db: Session) -> int | None:
+    """Atualiza o gauge onboarding_manual_queue_size com a contagem de ANALISE_MANUAL.
+
+    Roda depois do commit: uma falha aqui só é logada (não pode virar 500 nem impedir a
+    publicação do evento de algo que já foi gravado).
+    """
+    try:
+        size = db.scalar(
+            select(func.count()).select_from(Customer)
+            .where(Customer.onboarding_status == ANALISE_MANUAL)
+        ) or 0
+        ONBOARDING_MANUAL_QUEUE.set(size)
+    except Exception:
+        logger.exception("Falha ao atualizar onboarding_manual_queue_size")
+        db.rollback()
+        return None
     return size
+
+
+def claim_status(db: Session, customer_id: int, allowed: tuple, new_status: str) -> bool:
+    """Compare-and-set do onboarding_status: só muda se o status atual (no banco) estiver em
+    `allowed`. False quando outra transação já mudou o status (decisão/envio concorrente)."""
+    current = Customer.onboarding_status
+    conditions = [current.in_([s for s in allowed if s is not None])]
+    if None in allowed:
+        conditions.append(current.is_(None))
+    result = db.execute(
+        update(Customer)
+        .where(Customer.id == customer_id, or_(*conditions))
+        .values(onboarding_status=new_status)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount == 1
 
 
 def _blank_to_none(value):
@@ -143,6 +175,11 @@ class OnboardingService:
             erros = submission_errors(data)
             if erros:
                 raise OnboardingValidationError(erros)
+        new_status = EM_ANALISE if data.enviar else RASCUNHO
+        if customer is not None and not claim_status(
+            self.db, customer.id, EDITABLE_STATUSES, new_status
+        ):
+            raise OnboardingConflictError("Onboarding alterado por outra requisição; recarregue")
 
         if customer is None:
             customer = Customer(auth0_sub=sub, tipo_pessoa=TIPO_PJ)
@@ -154,7 +191,7 @@ class OnboardingService:
 
         customer.tipo_pessoa = TIPO_PJ
         customer.cpf = None
-        customer.nome = empresa.razao_social or ""
+        customer.nome = (empresa.razao_social or "")[:NOME_MAX]
         customer.razao_social = empresa.razao_social
         customer.nome_fantasia = empresa.nome_fantasia
         customer.cnpj = empresa.cnpj
@@ -170,14 +207,12 @@ class OnboardingService:
         profile.observacoes = data.observacoes
         profile.updated_at = datetime.utcnow()
 
+        customer.onboarding_status = new_status
         if data.enviar:
-            customer.onboarding_status = EM_ANALISE
             profile.submitted_at = datetime.utcnow()
             # reenvio após REPROVADO: a análise e a revisão anteriores deixam de valer
             profile.analise = None
             profile.reviewed_by = profile.review_comment = profile.reviewed_at = None
-        else:
-            customer.onboarding_status = RASCUNHO
 
         try:
             self.db.commit()
