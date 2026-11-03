@@ -1,8 +1,14 @@
 """Regras do onboarding PJ (portal do cliente)."""
+from datetime import datetime
+
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Customer
+from app.models import BusinessProfile, Customer
+from app.models.customer import TIPO_PJ
+from app.schemas.onboarding import OnboardingIn
+from app.templates import validate_respostas
 
 NAO_INICIADO = "NAO_INICIADO"
 RASCUNHO = "RASCUNHO"
@@ -10,6 +16,25 @@ EM_ANALISE = "EM_ANALISE"
 ANALISE_MANUAL = "ANALISE_MANUAL"
 APROVADO = "APROVADO"
 REPROVADO = "REPROVADO"
+
+# Status persistidos (NAO_INICIADO só existe na resposta, quando não há customer)
+STATUSES = (RASCUNHO, EM_ANALISE, ANALISE_MANUAL, APROVADO, REPROVADO)
+
+# Status a partir dos quais o cliente pode editar/reenviar o onboarding
+EDITABLE_STATUSES = (None, RASCUNHO, REPROVADO)
+
+# Campos de `empresa` exigidos no envio (nome_fantasia, fundacao_ano e funcionarios são opcionais)
+EMPRESA_OBRIGATORIOS = ("razao_social", "cnpj", "email", "telefone", "cidade", "estado")
+
+
+class OnboardingConflictError(Exception):
+    pass
+
+
+class OnboardingValidationError(Exception):
+    def __init__(self, campos: list[dict]):
+        super().__init__("Onboarding incompleto ou inválido")
+        self.campos = campos
 
 
 def _blank_to_none(value):
@@ -49,3 +74,105 @@ def me_view(db: Session, sub: str) -> dict:
         "onboarding_status": customer.onboarding_status or NAO_INICIADO,
         "empresa": empresa_dict(customer),
     }
+
+
+def onboarding_view(customer: Customer | None) -> dict:
+    if customer is None:
+        return {
+            "empresa": None, "segmento": None, "respostas": {}, "observacoes": None,
+            "onboarding_status": NAO_INICIADO, "updated_at": None,
+        }
+    profile = customer.business_profile
+    return {
+        "empresa": empresa_dict(customer),
+        "segmento": profile.segmento if profile else customer.segmento,
+        "respostas": (profile.respostas if profile else None) or {},
+        "observacoes": profile.observacoes if profile else None,
+        "onboarding_status": customer.onboarding_status or NAO_INICIADO,
+        "updated_at": profile.updated_at if profile else None,
+    }
+
+
+def submission_errors(data: OnboardingIn) -> list[dict]:
+    """Validação completa do envio: obrigatórios da empresa, segmento e respostas do template."""
+    empresa = data.empresa.model_dump()
+    erros = [
+        {"campo": f"empresa.{campo}", "erro": "Campo obrigatório."}
+        for campo in EMPRESA_OBRIGATORIOS
+        if empresa.get(campo) is None
+    ]
+    if data.segmento is None:
+        erros.append({"campo": "segmento", "erro": "Escolha o segmento."})
+    else:
+        erros.extend(validate_respostas(data.segmento, data.respostas))
+    return erros
+
+
+class OnboardingService:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def save(self, sub: str, data: OnboardingIn) -> Customer:
+        """Cria/atualiza o customer PJ do `sub` (substitui o estado salvo pelo corpo recebido).
+
+        enviar=false → RASCUNHO; enviar=true → valida tudo e vai para EM_ANALISE.
+        Erros: OnboardingConflictError (status não editável ou CNPJ de outro cliente) e
+        OnboardingValidationError (envio incompleto).
+        """
+        customer = find_by_sub(self.db, sub)
+        if customer is not None and customer.onboarding_status not in EDITABLE_STATUSES:
+            raise OnboardingConflictError(
+                f"Onboarding em {customer.onboarding_status} não pode ser alterado"
+            )
+        empresa = data.empresa
+        if empresa.cnpj is not None:
+            owner = self.db.scalar(select(Customer.id).where(Customer.cnpj == empresa.cnpj))
+            if owner is not None and (customer is None or owner != customer.id):
+                raise OnboardingConflictError(f"CNPJ {empresa.cnpj} já cadastrado")
+        if data.enviar:
+            erros = submission_errors(data)
+            if erros:
+                raise OnboardingValidationError(erros)
+
+        if customer is None:
+            customer = Customer(auth0_sub=sub, tipo_pessoa=TIPO_PJ)
+            self.db.add(customer)
+        profile = customer.business_profile
+        if profile is None:
+            profile = BusinessProfile(respostas={})
+            customer.business_profile = profile
+
+        customer.tipo_pessoa = TIPO_PJ
+        customer.cpf = None
+        customer.nome = empresa.razao_social or ""
+        customer.razao_social = empresa.razao_social
+        customer.nome_fantasia = empresa.nome_fantasia
+        customer.cnpj = empresa.cnpj
+        customer.email = empresa.email or ""
+        customer.telefone = empresa.telefone or ""
+        customer.segmento = data.segmento
+        profile.segmento = data.segmento
+        profile.cidade = empresa.cidade
+        profile.estado = empresa.estado
+        profile.fundacao_ano = empresa.fundacao_ano
+        profile.funcionarios = empresa.funcionarios
+        profile.respostas = dict(data.respostas)
+        profile.observacoes = data.observacoes
+        profile.updated_at = datetime.utcnow()
+
+        if data.enviar:
+            customer.onboarding_status = EM_ANALISE
+            profile.submitted_at = datetime.utcnow()
+            # reenvio após REPROVADO: a análise e a revisão anteriores deixam de valer
+            profile.analise = None
+            profile.reviewed_by = profile.review_comment = profile.reviewed_at = None
+        else:
+            customer.onboarding_status = RASCUNHO
+
+        try:
+            self.db.commit()
+        except IntegrityError as exc:  # corrida com outro envio do mesmo sub/CNPJ
+            self.db.rollback()
+            raise OnboardingConflictError("Onboarding já cadastrado para este usuário ou CNPJ") from exc
+        self.db.refresh(customer)
+        return customer
