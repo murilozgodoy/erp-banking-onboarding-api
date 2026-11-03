@@ -50,6 +50,8 @@ Em push na `main` o CI publica `ghcr.io/murilozgodoy/erp-banking-onboarding-api:
 - Publica `customer.created` (após `POST /customers`) e `customer.anamnesis_updated` (após
   `PUT /customers/{id}/anamnesis`) na exchange topic `erp.events`. Falha no broker nunca quebra a requisição.
 
+Logs em JSON com `X-Request-ID` (gerado se ausente e devolvido na resposta).
+
 Detalhes, payloads e deploy em [docs/observability-events.md](docs/observability-events.md).
 
 ## Configuração

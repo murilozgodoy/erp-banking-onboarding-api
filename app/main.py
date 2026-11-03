@@ -7,6 +7,7 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from app import models  # noqa: F401
 from app.config.database import Base, engine
 from app.config.settings import settings
+from app.core.logging import RequestIDMiddleware, configure_logging
 from app.core.metrics import setup_metrics
 from app.core.security import require_auth
 from app.events import EventPublisher
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    configure_logging(settings.log_level)
     Base.metadata.create_all(bind=engine)
 
     app = FastAPI(
@@ -44,8 +46,10 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware, allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        expose_headers=["X-Request-ID"],
     )
+    app.add_middleware(RequestIDMiddleware)  # mais externo: cobre CORS, auth e erros
     app.include_router(customers.router, dependencies=[Depends(require_auth)])
 
     @app.get("/openapi.json", dependencies=[Depends(require_auth)], include_in_schema=False)

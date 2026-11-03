@@ -16,6 +16,20 @@ o Prometheus faz scrape direto em `onboarding-api:8081/metrics` pela rede intern
 Os contadores de negócio ficam em `app/core/metrics.py`, no nível do módulo, para não serem
 registrados duas vezes quando o app é criado mais de uma vez (testes).
 
+## Logs estruturados e `X-Request-ID`
+
+Todos os logs saem em JSON (uma linha por evento, `timestamp`, `level`, `logger`, `message`).
+O `RequestIDMiddleware` (`app/core/logging.py`) lê o `X-Request-ID` vindo do gateway (ou gera um uuid4),
+devolve no header da resposta e grava uma linha de acesso por requisição:
+
+```json
+{"timestamp": "2026-11-03T12:00:00+00:00", "level": "INFO", "logger": "app.access", "message": "request",
+ "request_id": "gw-123", "method": "GET", "path": "/health", "status": 200, "duration_ms": 1.42}
+```
+
+O `request_id` também aparece nos logs emitidos durante a requisição (ex.: falha ao publicar evento).
+O access log do uvicorn fica desligado no container (`--no-access-log`) para não duplicar linhas.
+
 ## Eventos (RabbitMQ)
 
 - `RABBITMQ_URL` (ex.: `amqp://erp:erp@rabbitmq:5672/`). **Vazia = mensageria desligada (no-op)**.
