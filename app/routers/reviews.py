@@ -10,6 +10,7 @@ from app.config.database import get_db
 from app.core.metrics import ONBOARDING_REVIEWS
 from app.core.security import Principal, require_permission
 from app.events import ONBOARDING_REVIEWED, EventPublisher, get_publisher, onboarding_reviewed_event
+from app.events.outbox import enqueue, publish_pending, session_factory_for
 from app.models import BusinessProfile, Customer
 from app.schemas.me import EmpresaOut
 from app.services.onboarding_service import (
@@ -101,19 +102,18 @@ def decide(
     profile.reviewed_by = principal.subject
     profile.review_comment = payload.comentario
     profile.reviewed_at = datetime.utcnow()
+    reviewed_at = profile.reviewed_at
+    event = onboarding_reviewed_event(customer_id, payload.decisao, payload.comentario, principal.subject)
+    enqueue(db, ONBOARDING_REVIEWED, event)  # mesma transação da decisão
     db.commit()
     ONBOARDING_REVIEWS.labels(decisao=payload.decisao).inc()
     refresh_manual_queue(db)
-    background.add_task(
-        publisher.publish,
-        ONBOARDING_REVIEWED,
-        onboarding_reviewed_event(customer_id, payload.decisao, payload.comentario, principal.subject),
-    )
+    background.add_task(publish_pending, publisher, session_factory_for(db), ONBOARDING_REVIEWED, event)
     return {
         "customer_id": customer_id,
         "onboarding_status": customer.onboarding_status,
         "decisao": payload.decisao,
         "comentario": payload.comentario,
         "reviewer": principal.subject,
-        "reviewed_at": profile.reviewed_at,
+        "reviewed_at": reviewed_at,
     }

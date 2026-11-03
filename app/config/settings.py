@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     port: int = 8081
     rabbitmq_url: str = ""
     root_path: str = ""
+    # Intervalo do relay do outbox (republica eventos não publicados); <= 0 desliga o relay
+    outbox_poll_seconds: float = 10
 
 
 settings = Settings()
