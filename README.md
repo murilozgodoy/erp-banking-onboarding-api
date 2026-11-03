@@ -101,6 +101,8 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | GET    | `/me`                          | `read:self`       | Customer vinculado ao `sub` do token (portal)        |
 | GET    | `/me/onboarding`               | `read:self`       | Rascunho ou envio atual do onboarding PJ             |
 | PUT    | `/me/onboarding`               | `write:self`      | Salva rascunho (`enviar=false`) ou envia (`enviar=true`) |
+| GET    | `/onboarding/reviews?status=`  | `review:onboarding` | Fila de análise (padrão `ANALISE_MANUAL`)          |
+| POST   | `/onboarding/reviews/{customer_id}/decision` | `review:onboarding` | `{decisao: APROVADO\|REPROVADO, comentario}` |
 
 ### Portal do cliente (Fase 2)
 
@@ -136,6 +138,36 @@ onboarding_status, updated_at}` (sem customer: `empresa: null`, `respostas: {}`,
   de `customer.onboarding_submitted`.
 - Métricas: `onboarding_submissions_total{segmento}` (séries zeradas para os 9 segmentos) e
   `onboarding_drafts_saved_total`.
+
+**Status do onboarding** (`customers.onboarding_status`): `NAO_INICIADO` (sem customer, só na resposta) →
+`RASCUNHO` → `EM_ANALISE` → `APROVADO` | `ANALISE_MANUAL` → (analista) `APROVADO` | `REPROVADO`.
+Clientes PF do backoffice ficam com `onboarding_status` nulo.
+
+**Análise manual.** `GET /onboarding/reviews` devolve `[{customer_id, empresa, segmento, observacoes, analise,
+submitted_at}]` em ordem de envio. `analise` é o **resumo** recebido no evento do Score
+(`{score, faixa_risco, gerado_por, status}`): o Onboarding não chama o Score de forma síncrona; o front busca a
+análise completa em Score `GET /scores/analyses/{customer_id}`. A decisão só vale a partir de `ANALISE_MANUAL`
+(409 em outro status, 404 sem onboarding), grava `reviewed_by` (= `sub` do analista), comentário e data,
+publica `customer.onboarding_reviewed` e responde
+`{customer_id, onboarding_status, decisao, comentario, reviewer, reviewed_at}`.
+
+**Eventos da Fase 2** (exchange `erp.events`, mesmo envelope `event_id`, `event_type`, `occurred_at`):
+
+| Routing key | Direção | Payload |
+| --- | --- | --- |
+| `customer.onboarding_submitted` | publica (envio do onboarding) | `customer_id, auth0_sub, segmento, empresa, respostas, observacoes` |
+| `customer.onboarding_reviewed` | publica (decisão do analista) | `customer_id, decisao, comentario, reviewer` |
+| `business.analysis_completed` | consome na fila durável `onboarding.analysis-completed` | `customer_id, status (APROVADO\|ANALISE_MANUAL), score, faixa_risco, gerado_por` |
+
+O consumer roda em background no lifespan (desligado sem `RABBITMQ_URL`), é idempotente por `event_id`
+(tabela `processed_events`), só muda `EM_ANALISE` → `APROVADO`/`ANALISE_MANUAL` (fora disso o resultado é
+`ignored`) e guarda o resumo em `business_profiles.analise`. Ack no sucesso; erro inesperado volta para a fila
+uma vez (`nack(requeue=not redelivered)`).
+
+**Métricas do onboarding** (séries zeradas no startup): `events_consumed_total{routing_key,result}`
+(`ok|duplicate|ignored|invalid|error`), `onboarding_reviews_total{decisao}` e o gauge
+`onboarding_manual_queue_size` (contagem de `ANALISE_MANUAL`, lida do banco no startup e atualizada após
+envio, decisão e consumo do evento do Score).
 
 ## Templates de onboarding por segmento
 
