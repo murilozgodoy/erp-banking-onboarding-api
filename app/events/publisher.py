@@ -21,6 +21,7 @@ EXCHANGE_NAME = "erp.events"
 CUSTOMER_CREATED = "customer.created"
 ANAMNESIS_UPDATED = "customer.anamnesis_updated"
 ONBOARDING_SUBMITTED = "customer.onboarding_submitted"
+ONBOARDING_REVIEWED = "customer.onboarding_reviewed"
 
 
 def _envelope(event_type: str, **payload: Any) -> dict[str, Any]:
@@ -62,6 +63,18 @@ def onboarding_submitted_event(
         empresa=empresa,
         respostas=respostas,
         observacoes=observacoes,
+    )
+
+
+def onboarding_reviewed_event(
+    customer_id: int, decisao: str, comentario: str | None, reviewer: str
+) -> dict[str, Any]:
+    return _envelope(
+        ONBOARDING_REVIEWED,
+        customer_id=customer_id,
+        decisao=decisao,
+        comentario=comentario,
+        reviewer=reviewer,
     )
 
 
