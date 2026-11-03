@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     root_path: str = ""
     # Intervalo do relay do outbox (republica eventos não publicados); <= 0 desliga o relay
     outbox_poll_seconds: float = 10
+    # Base do link de convite da equipe (vazio = https://erp-banking-front.vercel.app)
+    front_url: str = ""
 
 
 settings = Settings()

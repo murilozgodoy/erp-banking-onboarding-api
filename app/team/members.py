@@ -8,9 +8,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.types import JSON
 
+from app.core.metrics import TEAM_MEMBERS
 from app.models import CompanyMember, Customer
 from app.models.customer import TIPO_PJ
-from app.team.permissions import ATIVO, DONO, effective, preset
+from app.team.permissions import ATIVO, DONO, PAPEIS, STATUSES, effective, preset
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,26 @@ def backfill_owner_members(conn: Connection, dialect: str) -> int:
     return max(int(result.rowcount or 0), 0)
 
 
+def refresh_team_members(db: Session) -> None:
+    """Gauge team_members_total{papel,status} a partir do banco (uma consulta agrupada).
+
+    Roda depois do commit: uma falha só é logada (não pode virar 500 de algo que já foi gravado).
+    """
+    try:
+        rows = db.execute(
+            select(CompanyMember.papel, CompanyMember.status, func.count())
+            .group_by(CompanyMember.papel, CompanyMember.status)
+        ).all()
+    except Exception:
+        logger.exception("Falha ao atualizar team_members_total")
+        db.rollback()
+        return
+    counts = {(papel, status): total for papel, status, total in rows}
+    for papel in PAPEIS:
+        for status in STATUSES:
+            TEAM_MEMBERS.labels(papel=papel, status=status).set(counts.get((papel, status), 0))
+
+
 def find_dono(db: Session, customer_id: int) -> CompanyMember | None:
     return db.scalar(
         select(CompanyMember)
@@ -118,6 +139,7 @@ def ensure_owner_member(db: Session, customer: Customer) -> CompanyMember | None
                     .execution_options(synchronize_session=False)
                 )
             db.commit()
+            refresh_team_members(db)
         except IntegrityError:
             db.rollback()  # outra requisição venceu ou o sub está em outro membro: relê
         dono = find_dono(db, customer_id)

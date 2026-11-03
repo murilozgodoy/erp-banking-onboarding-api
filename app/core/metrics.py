@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from app.team.permissions import PAPEIS
+from app.team.permissions import STATUSES as MEMBER_STATUSES
 from app.templates import SEGMENTOS
 
 CUSTOMERS_CREATED = Counter(
@@ -47,6 +49,12 @@ OUTBOX_PENDING = Gauge(
     "Eventos no outbox ainda não publicados (atualizado a cada ciclo do relay)",
 )
 
+TEAM_MEMBERS = Gauge(
+    "team_members_total",
+    "Membros das equipes das empresas por papel e status (lido do banco no startup e após cada mudança)",
+    ["papel", "status"],
+)
+
 EVENTS_CONSUMED = Counter(
     "events_consumed_total",
     "Eventos consumidos do RabbitMQ, por resultado do processamento",
@@ -58,6 +66,7 @@ PUBLISHED_ROUTING_KEYS = (
     "customer.anamnesis_updated",
     "customer.onboarding_submitted",
     "customer.onboarding_reviewed",
+    "company.member_changed",
 )
 PUBLISHED_RESULTS = ("ok", "error")
 
@@ -79,6 +88,9 @@ def init_metrics() -> None:
             EVENTS_CONSUMED.labels(routing_key=routing_key, result=result)
     for decisao in REVIEW_DECISOES:
         ONBOARDING_REVIEWS.labels(decisao=decisao)
+    for papel in PAPEIS:
+        for status in MEMBER_STATUSES:
+            TEAM_MEMBERS.labels(papel=papel, status=status)
 
 
 init_metrics()
