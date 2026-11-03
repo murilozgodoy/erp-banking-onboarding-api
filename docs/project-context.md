@@ -5,14 +5,17 @@ Plataforma em microsserviços para digitalizar operações bancárias.
 
 ## Serviços
 
-| Serviço | Stack | Porta | Função |
+| Serviço | Stack | Porta interna | Função |
 |---------|-------|-------|--------|
 | Onboarding API (este repo) | Python 3.13 / FastAPI | 8081 | Cadastro de clientes, dados financeiros e anamnese |
 | Credit Score API | Python 3.13 / FastAPI | 8082 | Calcula score consultando o Onboarding |
 | Transactions API | Java 21 / Spring Boot 3.3 | 8080 | Contas, transações e crédito; consulta o Score |
 | Front (erp-banking-front) | React/Vite | 5173 | UI + login Auth0 |
 
-As portas 8080, 8081 e 8082 são as abertas na instância EC2 da AWS.
+Na EC2 (`3.235.6.136`) os serviços não são publicados: tudo passa pelo API Gateway (nginx) na **8080**
+(`/onboarding`, `/score`, `/transactions`); Grafana na **8081** e Prometheus na **8082**. Front na Vercel:
+https://erp-banking-front.vercel.app. Infra (compose, gateway, observabilidade, k6) no repo
+[erp-banking-infra](https://github.com/GabrielRosa1/erp-banking-infra).
 PostgreSQL único com 3 schemas (um por serviço). Dados de outro serviço só via API, nunca SQL direto.
 Dev/testes: SQLite; produção: `DATABASE_URL` (Postgres, driver `psycopg[binary]`).
 
@@ -23,11 +26,11 @@ Dev/testes: SQLite; produção: `DATABASE_URL` (Postgres, driver `psycopg[binary
 | 1 | 09/09/2026 | Arquitetura + repos | Entregue |
 | 2 | 28/09/2026 | 3 serviços + testes ≥ 80% | Entregue |
 | 3 | 21/10/2026 | Auth0 (OAuth2/JWT + RBAC) + Frontend | Entregue |
-| 4 | 04/11/2026 | API Gateway, carga, Prometheus/Grafana, AWS EC2 | Pendente |
+| 4 | 04/11/2026 | API Gateway, carga, Prometheus/Grafana, AWS EC2, mensageria | Em entrega |
 
 ## Endpoints desta API
 
-`GET /health` · `GET /customers` · `POST /customers` · `GET /customers/{id}` ·
+`GET /health` · `GET /metrics` · `GET /customers` · `POST /customers` · `GET /customers/{id}` ·
 `PUT /customers/{id}/anamnesis` (todos exceto `/health` e `/metrics` exigem Bearer JWT e a permissão da rota).
 
 ## Decisões técnicas

@@ -5,7 +5,7 @@ Contexto do projeto, arquitetura e autenticação em [docs/](docs/README.md).
 
 ## Requisitos
 
-- Python 3.11+
+- Python 3.12+ (o CI e a imagem Docker usam 3.13)
 
 ## Instalação
 
@@ -23,6 +23,24 @@ python -m app.main          # http://localhost:8081 (porta configurável por POR
 ```
 
 Docs interativas: http://localhost:8081/docs (exigem Bearer token, ver abaixo).
+
+## Produção (EC2 + API Gateway)
+
+O serviço roda no `docker compose` do repo [erp-banking-infra](https://github.com/GabrielRosa1/erp-banking-infra)
+na EC2 `3.235.6.136`, **sem porta publicada**: o acesso público é só pelo API Gateway (nginx) na porta **8080**, com
+o prefixo `/onboarding` (removido antes de chegar aqui; por isso `ROOT_PATH=/onboarding`).
+
+| O quê          | URL                                                                   |
+| -------------- | --------------------------------------------------------------------- |
+| API            | `http://3.235.6.136:8080/onboarding/...` (ex.: `/onboarding/health`)  |
+| Swagger        | `http://3.235.6.136:8080/onboarding/docs` (exige Bearer token)        |
+| Front (Vercel) | https://erp-banking-front.vercel.app → `/api/onboarding/*` reescrito para o gateway |
+| Grafana        | `http://3.235.6.136:8081`                                             |
+| Prometheus     | `http://3.235.6.136:8082` (coleta `onboarding-api:8081/metrics` pela rede interna) |
+
+Consumidores dos eventos publicados aqui: `customer.created` → Transactions (fila `transactions.customer-created`,
+abre conta corrente com `AUTO_OPEN_ACCOUNT=true`); `customer.anamnesis_updated` → Credit Score (fila
+`credit-score.anamnesis-updated`, marca o score como desatualizado).
 
 ## Testes com cobertura
 
@@ -45,7 +63,8 @@ Em push na `main` o CI publica `ghcr.io/murilozgodoy/erp-banking-onboarding-api:
 
 ## Métricas e eventos
 
-- `GET /metrics`: métricas HTTP padrão (`http_requests_total`, `http_request_duration_seconds`) e de
+- `GET /metrics`: métricas HTTP padrão (`http_requests_total`, `http_request_duration_seconds`,
+  `http_request_duration_highr_seconds`) e de
   negócio (`customers_created_total`, `events_published_total{routing_key,result}`).
 - Publica `customer.created` (após `POST /customers`) e `customer.anamnesis_updated` (após
   `PUT /customers/{id}/anamnesis`) na exchange topic `erp.events`. Falha no broker nunca quebra a requisição.
@@ -61,7 +80,7 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | Variável         | Padrão                      | Descrição                                                                   |
 | ---------------- | --------------------------- | --------------------------------------------------------------------------- |
 | `DATABASE_URL`   | `sqlite:///./onboarding.db` | Compose: `postgresql+psycopg://erp:erp@postgres:5432/erp?options=-csearch_path%3Donboarding` (tabelas no schema `onboarding`) |
-| `PORT`           | `8081`                      | Porta usada por `python -m app.main` (8081 é uma das portas abertas na EC2) |
+| `PORT`           | `8081`                      | Porta do uvicorn (local e dentro do container)                              |
 | `AUTH0_DOMAIN`   | —                           | Domínio do tenant, sem `https://` (ex.: `dev-slbrfj6dwk1pdeox.us.auth0.com`) |
 | `AUTH0_AUDIENCE` | —                           | Identifier da API no Auth0: `https://erp-banking-api`                       |
 | `CORS_ORIGINS`   | `["http://localhost:5173"]` | Origens do frontend, em JSON                                                |
