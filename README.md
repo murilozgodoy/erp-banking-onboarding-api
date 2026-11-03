@@ -98,6 +98,21 @@ Variáveis lidas do ambiente ou do `.env` (ver `.env.example`):
 | POST   | `/customers`                   | `write:customers` | Cria cliente (endereço e perfil financeiro opcionais) |
 | GET    | `/customers/{id}`              | `read:customers`  | Consulta cliente (usado pelo Credit Score)           |
 | PUT    | `/customers/{id}/anamnesis`    | `write:customers` | Cria/atualiza a anamnese                             |
+| GET    | `/me`                          | `read:self`       | Customer vinculado ao `sub` do token (portal)        |
+
+### Portal do cliente (Fase 2)
+
+O cliente PJ é identificado pelo `sub` do token (`customers.auth0_sub`, único). `GET /me` responde
+`{customer_id, onboarding_status, empresa}`; sem customer: `{customer_id: null, onboarding_status: "NAO_INICIADO", empresa: null}`.
+Score e Transactions chamam `GET /me` com o token repassado para descobrir o `customer_id`.
+
+Armazenamento de `empresa`: `razao_social`, `nome_fantasia`, `cnpj`, `email` e `telefone` ficam em `customers`
+(`nome` = `razao_social`, `cpf` nulo, `tipo_pessoa = PJ`); `cidade`, `estado`, `fundacao_ano` e `funcionarios`
+ficam em `business_profiles`, junto com `segmento`, `respostas`, `observacoes`, `analise` e os dados de revisão.
+
+Migração: `create_all` não altera tabelas existentes, então `app/config/migrations.py` roda no startup e, só em
+PostgreSQL, aplica `ADD COLUMN IF NOT EXISTS` das colunas novas, `cpf DROP NOT NULL` e os índices únicos de
+`auth0_sub`/`cnpj` (idempotente; no-op em SQLite).
 
 ## Autenticação e autorização (Auth0)
 
