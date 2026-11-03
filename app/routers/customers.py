@@ -1,8 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
+from app.core.metrics import CUSTOMERS_CREATED
 from app.core.security import require_permission
+from app.events import (
+    EventPublisher,
+    anamnesis_updated_event,
+    customer_created_event,
+    get_publisher,
+)
 from app.schemas import AnamnesisIn, AnamnesisOut, CustomerCreate, CustomerOut
 from app.services import (
     CustomerAlreadyExistsError,
@@ -19,12 +26,19 @@ router = APIRouter(prefix="/customers", tags=["customers"])
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("write:customers"))],
 )
-def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
+def create_customer(
+    payload: CustomerCreate,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    publisher: EventPublisher = Depends(get_publisher),
+):
     service = CustomerService(db)
     try:
         customer = service.create(payload)
     except CustomerAlreadyExistsError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    CUSTOMERS_CREATED.inc()
+    background.add_task(publisher.publish, "customer.created", customer_created_event(customer))
     return customer
 
 
@@ -60,9 +74,21 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
     response_model=AnamnesisOut,
     dependencies=[Depends(require_permission("write:customers"))],
 )
-def upsert_anamnesis(customer_id: int, payload: AnamnesisIn, db: Session = Depends(get_db)):
+def upsert_anamnesis(
+    customer_id: int,
+    payload: AnamnesisIn,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    publisher: EventPublisher = Depends(get_publisher),
+):
     service = CustomerService(db)
     try:
-        return service.upsert_anamnesis(customer_id, payload)
+        anamnesis = service.upsert_anamnesis(customer_id, payload)
     except CustomerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    background.add_task(
+        publisher.publish,
+        "customer.anamnesis_updated",
+        anamnesis_updated_event(customer_id, anamnesis),
+    )
+    return anamnesis
