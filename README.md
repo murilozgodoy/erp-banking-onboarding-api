@@ -5,6 +5,8 @@ Serviço do **ErpIa** responsável pelo cadastro de clientes PF do backoffice (c
 convites e permissões). Contexto do projeto, arquitetura e autenticação em [docs/](docs/README.md); a visão de
 ponta a ponta da Fase 2 está em `docs/portal-cliente.md` e `docs/apis-fase-2.md` do repositório do front.
 
+Infra e deploy: [erp-banking-infra](https://github.com/GabrielRosa1/erp-banking-infra)
+
 ## Sumário
 
 - [Executar localmente](#executar-localmente)
